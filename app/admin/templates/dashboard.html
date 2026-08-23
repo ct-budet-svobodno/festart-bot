@@ -1,0 +1,159 @@
+{% extends "base.html" %}
+{% block title %}Сводка{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>Сводка</h1>
+  <div class="btn-row">
+    <a class="btn btn-sm" href="/participants/export.csv">Выгрузить участников</a>
+  </div>
+</div>
+
+{% if not event.is_registration_open or not event.is_scanning_open or not event.is_redemption_open %}
+<div class="alert alert-warn">
+  Часть сценариев выключена — проверьте рубильники ниже.
+</div>
+{% endif %}
+
+<div class="stats">
+  <div class="stat">
+    <div class="stat-label">Зарегистрировано</div>
+    <div class="stat-value">{{ stats.registered }}</div>
+    <div class="stat-note">из {{ stats.started }} открывших бота</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Отметок на зонах</div>
+    <div class="stat-value">{{ stats.visits }}</div>
+    <div class="stat-note">
+      {% if stats.registered %}
+        {{ (stats.visits / stats.registered) | round(1) }} на человека
+      {% else %}пока нет данных{% endif %}
+    </div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Баллов начислено</div>
+    <div class="stat-value">{{ stats.points_issued }}</div>
+    <div class="stat-note">потрачено {{ stats.points_spent }}</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Призов выдано</div>
+    <div class="stat-value">{{ stats.prizes_issued }}</div>
+    <div class="stat-note">
+      {% if stats.pending %}
+        <span class="badge badge-warn">{{ stats.pending }} ждут подтверждения</span>
+      {% else %}все операции закрыты{% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2>Рубильники</h2>
+    <span class="small faint">Применяются мгновенно</span>
+  </div>
+  <div class="card-body" style="padding-top:.25rem;padding-bottom:.25rem">
+    {% set switches = [
+      ('is_registration_open', 'Регистрация', 'Новые участники могут завести профиль', event.is_registration_open),
+      ('is_scanning_open', 'Начисление баллов', 'Сканирование QR на зонах работает', event.is_scanning_open),
+      ('is_redemption_open', 'Выдача призов', 'Организаторы могут списывать баллы', event.is_redemption_open)
+    ] %}
+    {% for field, title, hint, value in switches %}
+    <div class="toggle">
+      <div class="toggle-text">
+        <strong>{{ title }}</strong>
+        <span>{{ hint }}</span>
+      </div>
+      <form method="post" action="/settings/toggle" style="margin:0">
+        <input type="hidden" name="field" value="{{ field }}">
+        <label class="switch">
+          <input type="checkbox" {% if value %}checked{% endif %} onchange="this.form.submit()">
+          <span></span>
+        </label>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+{% if low_stock %}
+<div class="card">
+  <div class="card-head"><h2>Призы заканчиваются</h2></div>
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>Приз</th><th class="right">Осталось</th><th class="right">Цена</th><th></th></tr></thead>
+      <tbody>
+      {% for prize in low_stock %}
+        <tr>
+          <td>{{ prize.title }}</td>
+          <td class="right num">
+            {% if prize.stock_left == 0 %}
+              <span class="badge badge-danger">закончился</span>
+            {% else %}
+              <span class="badge badge-warn">{{ prize.stock_left }} шт.</span>
+            {% endif %}
+          </td>
+          <td class="right num">{{ prize.cost_points }}</td>
+          <td class="right">
+            <form class="inline-form" method="post" action="/prizes/{{ prize.id }}/restock">
+              <input type="number" name="amount" value="10" aria-label="Сколько довезли">
+              <button class="btn btn-sm" type="submit">Довезли</button>
+            </form>
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<div class="card">
+  <div class="card-head">
+    <h2>Проходимость зон</h2>
+    <a class="small" href="/activities?kind=zone">Все зоны</a>
+  </div>
+  {% if zone_stats %}
+  {% set top = zone_stats[0][1] or 1 %}
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>Зона</th><th style="width:45%">Посещений</th><th class="right">Всего</th></tr></thead>
+      <tbody>
+      {% for title, total in zone_stats %}
+        <tr>
+          <td>{{ title }}</td>
+          <td><div class="bar"><i style="width: {{ (total / top * 100) | round }}%"></i></div></td>
+          <td class="right num">{{ total }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty">
+    <strong>Зоны ещё не заведены</strong>
+    Добавьте первую зону, чтобы напечатать для неё QR-плакат.
+    <div style="margin-top:1rem"><a class="btn btn-primary" href="/activities/new?kind=zone">Добавить зону</a></div>
+  </div>
+  {% endif %}
+</div>
+
+{% if recent %}
+<div class="card">
+  <div class="card-head"><h2>Последние выдачи</h2></div>
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>Время</th><th>Приз</th><th class="right">Баллы</th></tr></thead>
+      <tbody>
+      {% for r in recent %}
+        <tr>
+          <td class="nowrap num dim">{{ r.created_at | dt }}</td>
+          <td><a href="/participants/{{ r.participant_id }}">{{ r.prize_title }}</a></td>
+          <td class="right num">{{ r.cost_points }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

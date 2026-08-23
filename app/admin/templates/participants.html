@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Участники{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>Участники <span class="dim num" style="font-weight:400">{{ total }}</span></h1>
+  <a class="btn btn-sm" href="/participants/export.csv">Выгрузить CSV</a>
+</div>
+
+<form method="get" action="/participants" class="btn-row" style="margin-bottom:1rem">
+  <input type="text" name="q" value="{{ q }}" style="flex:1;min-width:200px"
+         placeholder="Фамилия, студбилет, код или @username">
+  <button class="btn btn-primary" type="submit">Найти</button>
+  {% if q %}<a class="btn" href="/participants">Сбросить</a>{% endif %}
+</form>
+
+{% if participants %}
+<div class="card">
+  <div class="table-scroll">
+    <table>
+      <thead>
+        <tr>
+          <th>Участник</th>
+          <th>Факультет</th>
+          <th>Студбилет</th>
+          <th class="right">Баллы</th>
+          <th>Код</th>
+          <th>Статус</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for p in participants %}
+        <tr>
+          <td>
+            <a href="/participants/{{ p.id }}"><strong>{{ p.full_name }}</strong></a>
+            {% if p.tg_username %}<div class="small faint">@{{ p.tg_username }}</div>{% endif %}
+          </td>
+          <td class="small dim">{{ p.faculty_title }}</td>
+          <td class="mono small">{{ p.student_id or '—' }}</td>
+          <td class="right num"><strong>{{ balances.get(p.id, 0) }}</strong></td>
+          <td class="mono small">{{ p.short_code }}</td>
+          <td>
+            {% if p.is_blocked %}<span class="badge badge-danger">заблокирован</span>
+            {% elif p.is_registered %}<span class="badge badge-ok">активен</span>
+            {% else %}<span class="badge badge-mute">не дорегистрировался</span>{% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% if pages > 1 %}
+<div class="btn-row" style="justify-content:center">
+  {% if page > 1 %}<a class="btn btn-sm" href="/participants?q={{ q }}&page={{ page - 1 }}">← Назад</a>{% endif %}
+  <span class="small dim num">Страница {{ page }} из {{ pages }}</span>
+  {% if page < pages %}<a class="btn btn-sm" href="/participants?q={{ q }}&page={{ page + 1 }}">Вперёд →</a>{% endif %}
+</div>
+{% endif %}
+{% else %}
+<div class="card">
+  <div class="empty">
+    {% if q %}
+      <strong>Никого не нашли</strong>
+      Проверьте написание или поищите по номеру студенческого.
+    {% else %}
+      <strong>Участников пока нет</strong>
+      Как только первый человек пройдёт регистрацию в боте, он появится здесь.
+    {% endif %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

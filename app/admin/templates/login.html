@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Вход · ФЕСТАРТ</title>
+<link rel="stylesheet" href="/static/admin.css?v={{ asset_v() }}">
+</head>
+<body>
+<div class="login-shell">
+  <form class="login-card" method="post" action="/login">
+    <div class="brand" style="margin-bottom:1.25rem"><span class="brand-mark"></span> ФЕСТАРТ</div>
+    <h1 style="margin-bottom:.35rem">Панель организатора</h1>
+    <p class="dim small" style="margin-bottom:1.25rem">Введите пароль, выданный координатором.</p>
+
+    {% if error %}<div class="alert alert-danger">{{ error }}</div>{% endif %}
+
+    <div class="field">
+      <label for="password">Пароль</label>
+      <input type="password" id="password" name="password" autofocus autocomplete="current-password" required>
+    </div>
+
+    <button class="btn btn-primary" style="width:100%" type="submit">Войти</button>
+  </form>
+</div>
+</body>
+</html>

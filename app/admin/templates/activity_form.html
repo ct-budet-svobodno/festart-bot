@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}{{ activity.title if activity else 'Новая запись' }}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <h1>{{ activity.title if activity else ('Новая зона' if kind == 'zone' else 'Новый мастер-класс') }}</h1>
+  <a class="btn btn-sm" href="/activities?kind={{ kind }}">← К списку</a>
+</div>
+
+<form method="post" action="/activities/save">
+  <input type="hidden" name="activity_id" value="{{ activity.id if activity else '' }}">
+
+  <div class="card">
+    <div class="card-body">
+      <div class="field">
+        <label for="kind">Тип</label>
+        <select id="kind" name="kind">
+          <option value="zone" {% if kind == 'zone' %}selected{% endif %}>Интерактивная зона</option>
+          <option value="workshop" {% if kind == 'workshop' %}selected{% endif %}>Мастер-класс</option>
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="title">Название</label>
+        <input type="text" id="title" name="title" required maxlength="200"
+               value="{{ activity.title if activity else '' }}"
+               placeholder="Например: Фотозона у главного входа">
+      </div>
+
+      <div class="field">
+        <label for="description">Описание</label>
+        <textarea id="description" name="description"
+                  placeholder="Что там происходит. Участник увидит этот текст в боте.">{{ activity.description or '' if activity else '' }}</textarea>
+      </div>
+
+      <div class="grid-2">
+        <div class="field">
+          <label for="location">Место</label>
+          <input type="text" id="location" name="location"
+                 value="{{ activity.location or '' if activity else '' }}"
+                 placeholder="Аудитория 204">
+        </div>
+        <div class="field">
+          <label for="points">Баллов за посещение</label>
+          <input type="number" id="points" name="points" min="0" max="1000"
+                 value="{{ activity.points if activity else 1 }}">
+          <div class="field-hint">Можно менять в любой момент, в том числе во время фестиваля.</div>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="field">
+          <label for="starts_at">Начало</label>
+          <input type="datetime-local" id="starts_at" name="starts_at"
+                 value="{{ dt_value(activity.starts_at) if activity else '' }}">
+        </div>
+        <div class="field">
+          <label for="ends_at">Конец</label>
+          <input type="datetime-local" id="ends_at" name="ends_at"
+                 value="{{ dt_value(activity.ends_at) if activity else '' }}">
+        </div>
+      </div>
+      <div class="field-hint" style="margin-top:-.5rem;margin-bottom:1rem">
+        Только для мастер-классов. Для зон оставьте пустым.
+      </div>
+
+      <div class="grid-3">
+        <div class="field">
+          <label for="map_x">X на карте, %</label>
+          <input type="number" id="map_x" name="map_x" step="0.1" min="0" max="100"
+                 value="{{ activity.map_x if activity and activity.map_x is not none else '' }}">
+        </div>
+        <div class="field">
+          <label for="map_y">Y на карте, %</label>
+          <input type="number" id="map_y" name="map_y" step="0.1" min="0" max="100"
+                 value="{{ activity.map_y if activity and activity.map_y is not none else '' }}">
+        </div>
+        <div class="field">
+          <label for="sort_order">Порядок</label>
+          <input type="number" id="sort_order" name="sort_order"
+                 value="{{ activity.sort_order if activity else 100 }}">
+        </div>
+      </div>
+      <div class="field-hint" style="margin-top:-.5rem">
+        Координаты в процентах от размера картинки: 0/0 — левый верхний угол, 100/100 — правый нижний.
+        Карту можно перезалить в другом разрешении, отметки не съедут.
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-body" style="padding-top:.25rem;padding-bottom:.25rem">
+      <div class="toggle">
+        <div class="toggle-text">
+          <strong>Активна</strong>
+          <span>Выключенная зона не начисляет баллы и не видна участникам</span>
+        </div>
+        <label class="switch">
+          <input type="checkbox" name="is_active" {% if not activity or activity.is_active %}checked{% endif %}>
+          <span></span>
+        </label>
+      </div>
+    </div>
+  </div>
+
+  <div class="btn-row">
+    <button class="btn btn-primary" type="submit">Сохранить</button>
+    <a class="btn" href="/activities?kind={{ kind }}">Отмена</a>
+  </div>
+</form>
+
+{% if activity %}
+<div class="card" style="margin-top:1.5rem">
+  <div class="card-head"><h2>QR-код</h2></div>
+  <div class="card-body">
+    <div style="display:flex;gap:1.25rem;align-items:flex-start;flex-wrap:wrap">
+      <img src="/activities/{{ activity.id }}/qr.png" alt="QR-код" style="width:160px;height:160px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:6px">
+      <div style="flex:1;min-width:240px">
+        <div class="small dim" style="margin-bottom:.35rem">Ссылка внутри кода</div>
+        <div class="copybox" style="margin-bottom:.75rem">{{ link }}</div>
+        <div class="btn-row">
+          <a class="btn btn-sm" href="/activities/{{ activity.id }}/poster.png">Скачать плакат A4</a>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<form method="post" action="/activities/{{ activity.id }}/delete"
+      onsubmit="return confirm('Удалить «{{ activity.title }}»? Отметки участников об этой зоне тоже пропадут.')">
+  <button class="btn btn-danger btn-sm" type="submit">Удалить</button>
+</form>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,150 @@
+{% extends "base.html" %}
+{% block title %}{{ participant.full_name }}{% endblock %}
+
+{% block content %}
+<div class="page-head">
+  <div>
+    <h1>{{ participant.full_name }}</h1>
+    <div class="dim small">
+      {{ participant.faculty_title }} ·
+      студбилет <span class="mono">{{ participant.student_id or '—' }}</span> ·
+      код <span class="mono">{{ participant.short_code }}</span>
+    </div>
+  </div>
+  <a class="btn btn-sm" href="/participants">← К списку</a>
+</div>
+
+{% if participant.is_blocked %}
+<div class="alert alert-danger">Участник заблокирован — бот не начисляет ему баллы.</div>
+{% endif %}
+
+<div class="stats">
+  <div class="stat">
+    <div class="stat-label">Баланс</div>
+    <div class="stat-value">{{ balance }}</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Пройдено зон</div>
+    <div class="stat-value">{{ visits | length }}</div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Telegram</div>
+    <div class="stat-value" style="font-size:1.125rem;padding-top:.5rem">
+      {% if participant.tg_username %}@{{ participant.tg_username }}{% else %}<span class="mono">{{ participant.tg_id }}</span>{% endif %}
+    </div>
+  </div>
+  <div class="stat">
+    <div class="stat-label">Регистрация</div>
+    <div class="stat-value" style="font-size:1.125rem;padding-top:.5rem">{{ participant.registered_at | dt }}</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Поправить баллы вручную</h2></div>
+  <div class="card-body">
+    <form method="post" action="/participants/{{ participant.id }}/points" class="btn-row">
+      <input type="number" name="delta" value="0" style="width:110px" aria-label="Сколько баллов" required>
+      <input type="text" name="comment" placeholder="Причина — попадёт в историю" style="flex:1;min-width:200px">
+      <button class="btn btn-primary" type="submit">Применить</button>
+    </form>
+    <div class="field-hint">Отрицательное число списывает. Операция останется в журнале навсегда.</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Призы</h2></div>
+  {% if redemptions %}
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>Когда</th><th>Приз</th><th class="right">Баллы</th><th>Статус</th><th></th></tr></thead>
+      <tbody>
+      {% for r in redemptions %}
+        <tr>
+          <td class="nowrap num dim small">{{ r.created_at | dt }}</td>
+          <td>{{ r.prize_title }}{% if r.comment %}<div class="small faint">{{ r.comment }}</div>{% endif %}</td>
+          <td class="right num">{{ r.cost_points }}</td>
+          <td>
+            {% if r.status == 'confirmed' %}<span class="badge badge-ok">выдан</span>
+            {% elif r.status == 'pending' %}<span class="badge badge-warn">ждёт подтверждения</span>
+            {% elif r.status == 'reverted' %}<span class="badge badge-mute">откачен</span>
+            {% else %}<span class="badge badge-mute">отменён</span>{% endif %}
+          </td>
+          <td class="right">
+            {% if r.status == confirmed_status %}
+            <form class="inline-form" method="post" action="/participants/redemptions/{{ r.id }}/revert"
+                  onsubmit="return confirm('Вернуть {{ r.cost_points }} б. и отменить выдачу «{{ r.prize_title }}»?')">
+              <input type="hidden" name="comment" value="Откат через админку">
+              <button class="btn btn-sm btn-danger" type="submit">Откатить</button>
+            </form>
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty">Призов пока не получал.</div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-head"><h2>Пройденные зоны</h2></div>
+  {% if visits %}
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>Когда</th><th>Зона</th><th class="right">Баллы</th><th>Как</th></tr></thead>
+      <tbody>
+      {% for visit, activity in visits %}
+        <tr>
+          <td class="nowrap num dim small">{{ visit.created_at | dt }}</td>
+          <td>{{ activity.title }}</td>
+          <td class="right num">{{ visit.points_awarded }}</td>
+          <td class="small dim">{{ 'вручную' if visit.source == 'manual' else 'QR' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty">Ещё не отметился ни на одной зоне.</div>
+  {% endif %}
+</div>
+
+<div class="card">
+  <div class="card-head">
+    <h2>История баллов</h2>
+    <span class="small faint">Полный журнал, ничего не затирается</span>
+  </div>
+  {% if ledger %}
+  <div class="table-scroll">
+    <table>
+      <thead><tr><th>Когда</th><th class="right">Изменение</th><th>Причина</th><th>Комментарий</th></tr></thead>
+      <tbody>
+      {% for row in ledger %}
+        <tr>
+          <td class="nowrap num dim small">{{ row.created_at | dt }}</td>
+          <td class="right num">
+            <strong style="color: {{ 'var(--ok)' if row.delta > 0 else 'var(--danger)' }}">
+              {{ '+' if row.delta > 0 }}{{ row.delta }}
+            </strong>
+          </td>
+          <td class="small">{{ row.reason_label }}</td>
+          <td class="small dim">{{ row.comment or '' }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="empty">Операций ещё не было.</div>
+  {% endif %}
+</div>
+
+<form method="post" action="/participants/{{ participant.id }}/block"
+      onsubmit="return confirm('{{ 'Разблокировать' if participant.is_blocked else 'Заблокировать' }} участника?')">
+  <button class="btn btn-danger btn-sm" type="submit">
+    {{ 'Разблокировать' if participant.is_blocked else 'Заблокировать' }}
+  </button>
+</form>
+{% endblock %}
