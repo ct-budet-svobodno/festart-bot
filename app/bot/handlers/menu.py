@@ -1,13 +1,21 @@
-"""Разделы главного меню участника."""
+"""Меню участника: одно сообщение-хаб с инлайн-кнопками.
+
+Разделы не шлют новые сообщения, а редактируют хаб на месте — чат
+остаётся чистым. Исключение — QR и карта: это фото, телеграм не умеет
+превращать текст в фото редактированием, поэтому они улетают отдельно.
+"""
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
+from aiogram.fsm.context import FSMContext
 from aiogram.types import BufferedInputFile, CallbackQuery, Message
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot import keyboards as kb
 from app.bot.render import profile_text, workshop_card, zones_text
-from app.models import Activity, ActivityKind, Participant
+from app.bot.states import HUB_KEY, reset_state
+from app.models import Activity, ActivityKind, Participant, Prize, Staff
 from app.services.event import get_event_settings
 from app.services.maps import build_progress_map
 from app.services.points import get_balance
@@ -18,76 +26,161 @@ from app.utils import fmt_points
 router = Router()
 
 
-async def _require_registration(message: Message, participant: Participant) -> bool:
+async def _edit(
+    callback: CallbackQuery, text: str, markup, alert: str | None = None
+) -> None:
+    """Отредактировать сообщение с кнопками.
+
+    «message is not modified» — норма (перерисовали то же самое). Остальные
+    ошибки редактирования (сообщение старше 48 часов и т.п.) не глотаем:
+    отправляем раздел новым сообщением, иначе кнопки «перестают работать».
+    """
+    if alert:
+        await callback.answer(alert, show_alert=True)
+        return
+    await callback.answer()
+    if not callback.message:
+        return
+    try:
+        await callback.message.edit_text(text, reply_markup=markup)
+    except TelegramBadRequest as exc:
+        if "message is not modified" in str(exc):
+            return
+        try:
+            await callback.message.answer(text, reply_markup=markup)
+        except Exception:
+            pass
+
+
+async def drop_hub(message: Message, state: FSMContext) -> None:
+    """Удалить прошлый хаб, если помним его id."""
+    data = await state.get_data()
+    old_hub = data.get(HUB_KEY)
+    if old_hub and message.bot is not None:
+        try:
+            await message.bot.delete_message(message.chat.id, old_hub)
+        except TelegramBadRequest:
+            pass
+        except Exception:
+            pass
+
+
+async def send_hub(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    participant: Participant,
+    *,
+    is_staff: bool = False,
+) -> None:
+    """Отправить сообщение-хаб: профиль + инлайн-меню. Прежний хаб удаляем."""
+    await drop_hub(message, state)
+    text = await profile_text(session, participant)
+    sent = await message.answer(text, reply_markup=kb.menu_keyboard(is_staff=is_staff))
+    await state.update_data(**{HUB_KEY: sent.message_id})
+
+
+def _is_staff(staff: Staff | None) -> bool:
+    return staff is not None and staff.is_active
+
+
+async def _require_registration(
+    callback: CallbackQuery, participant: Participant
+) -> bool:
     if participant.is_blocked:
-        await message.answer(
-            "Твой профиль приостановлен. Подойди к стойке организаторов — разберёмся."
+        await callback.answer(
+            "Профиль приостановлен. Подойди к стойке организаторов.", show_alert=True
         )
         return False
     if participant.is_registered:
         return True
-    await message.answer(
-        "Сначала нужно зарегистрироваться — это меньше минуты.\nНажми /start."
-    )
+    await callback.answer("Сначала зарегистрируйся — нажми /start", show_alert=True)
     return False
 
 
-@router.message(F.text == kb.BTN_POINTS)
-async def show_points(
-    message: Message, session: AsyncSession, participant: Participant
+# --- Хаб и разделы ---
+
+
+@router.callback_query(F.data == "menu:main")
+async def cb_menu_main(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession,
+    participant: Participant,
+    staff: Staff | None,
 ) -> None:
-    if not await _require_registration(message, participant):
+    await reset_state(state)
+    if not await _require_registration(callback, participant):
         return
-    await message.answer(await profile_text(session, participant))
+    await _edit(
+        callback,
+        await profile_text(session, participant),
+        kb.menu_keyboard(is_staff=_is_staff(staff)),
+    )
 
 
-@router.message(F.text == kb.BTN_QR)
-async def show_qr(
-    message: Message, session: AsyncSession, participant: Participant
+@router.callback_query(F.data == "menu:qr")
+async def cb_menu_qr(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession, participant: Participant
 ) -> None:
-    if not await _require_registration(message, participant):
+    await reset_state(state)
+    if not await _require_registration(callback, participant):
         return
-
     event = await get_event_settings(session)
     png = make_qr_png(participant_link(participant.qr_token), box_size=12, border=3)
     caption = event.qr_hint_text.format(short_code=participant.short_code)
+    await callback.answer()
+    if callback.message:
+        await callback.message.answer_photo(
+            BufferedInputFile(png, filename="my-qr.png"),
+            caption=f"<b>{participant.full_name}</b>\n\n{caption}",
+        )
 
-    await message.answer_photo(
-        BufferedInputFile(png, filename="my-qr.png"),
-        caption=f"<b>{participant.full_name}</b>\n\n{caption}",
+
+@router.callback_query(F.data == "menu:zones")
+async def cb_menu_zones(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession, participant: Participant
+) -> None:
+    await reset_state(state)
+    if not await _require_registration(callback, participant):
+        return
+    await _edit(
+        callback, await zones_text(session, participant), kb.back_keyboard()
     )
 
 
-@router.message(F.text == kb.BTN_ZONES)
-async def show_zones(
-    message: Message, session: AsyncSession, participant: Participant
+@router.callback_query(F.data == "menu:map")
+async def cb_menu_map(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession, participant: Participant
 ) -> None:
-    if not await _require_registration(message, participant):
+    await reset_state(state)
+    if not await _require_registration(callback, participant):
         return
-    await message.answer(await zones_text(session, participant))
-
-
-@router.message(F.text == kb.BTN_MAP)
-async def show_map(
-    message: Message, session: AsyncSession, participant: Participant
-) -> None:
-    if not await _require_registration(message, participant):
-        return
-
     image, caption = await build_progress_map(session, participant.id)
     if image is None:
-        await message.answer(caption or "Карта пока не загружена.")
+        await callback.answer(caption or "Карта пока не загружена.", show_alert=True)
         return
-    await message.answer_photo(
-        BufferedInputFile(image, filename="map.jpg"), caption=caption
-    )
+    await callback.answer()
+    if callback.message:
+        await callback.message.answer_photo(
+            BufferedInputFile(image, filename="map.jpg"), caption=caption
+        )
 
 
-@router.message(F.text == kb.BTN_WORKSHOPS)
-async def show_workshops(
-    message: Message, session: AsyncSession, participant: Participant
+@router.callback_query(F.data == "menu:ws")
+async def cb_menu_workshops(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession, participant: Participant
 ) -> None:
-    if not await _require_registration(message, participant):
+    await reset_state(state)
+    if not await _require_registration(callback, participant):
         return
 
     rows = await session.scalars(
@@ -97,12 +190,16 @@ async def show_workshops(
     )
     workshops = list(rows.all())
     if not workshops:
-        await message.answer("Расписание пока не опубликовано. Загляни чуть позже.")
+        await _edit(
+        callback,
+        "Расписание пока не опубликовано. Загляни чуть позже.",
+        kb.back_keyboard(),
+    )
         return
-
-    await message.answer(
+    await _edit(
+        callback,
         "<b>Мастер-классы и активности</b>\nНажми, чтобы прочитать подробности.",
-        reply_markup=kb.workshops_keyboard(workshops),
+        kb.workshops_keyboard(workshops),
     )
 
 
@@ -110,22 +207,26 @@ async def show_workshops(
 async def workshop_details(callback: CallbackQuery, session: AsyncSession) -> None:
     workshop_id = int(callback.data.split(":")[1])
     workshop = await session.get(Activity, workshop_id)
-    await callback.answer()
     if workshop is None:
+        await callback.answer("Не найдено")
         return
-    await callback.message.answer(workshop_card(workshop))
+    markup = kb.with_back(kb.back_keyboard("menu:ws", "← К списку"))
+    await _edit(callback, workshop_card(workshop), markup)
 
 
-@router.message(F.text == kb.BTN_PRIZES)
-async def show_prizes(
-    message: Message, session: AsyncSession, participant: Participant
+@router.callback_query(F.data == "menu:prizes")
+async def cb_menu_prizes(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession, participant: Participant
 ) -> None:
-    if not await _require_registration(message, participant):
+    await reset_state(state)
+    if not await _require_registration(callback, participant):
         return
 
     prizes = await active_prizes(session)
     if not prizes:
-        await message.answer("Призы пока не добавлены.")
+        await _edit(callback, "Призы пока не добавлены.", kb.back_keyboard())
         return
 
     balance = await get_balance(session, participant.id)
@@ -143,8 +244,8 @@ async def show_prizes(
     lines.append("")
     lines.append("Приз выдаёт организатор на стойке — покажи ему свой QR.")
 
-    await message.answer(
-        "\n".join(lines), reply_markup=kb.prizes_keyboard(prizes, balance)
+    await _edit(
+        callback, "\n".join(lines), kb.with_back(kb.prizes_keyboard(prizes, balance))
     )
 
 
@@ -152,8 +253,6 @@ async def show_prizes(
 async def prize_details(
     callback: CallbackQuery, session: AsyncSession, participant: Participant
 ) -> None:
-    from app.models import Prize
-
     prize_id = int(callback.data.split(":")[1])
     prize = await session.get(Prize, prize_id)
     if prize is None:
@@ -173,14 +272,16 @@ async def prize_details(
         text += f"\n\n{prize.description}"
     text += f"\n\n{hint}"
 
-    await callback.answer()
-    await callback.message.answer(text)
+    markup = kb.with_back(kb.back_keyboard("menu:prizes", "← К призам"))
+    await _edit(callback, text, markup)
 
 
-@router.message(F.text == kb.BTN_HELP)
-async def show_help(message: Message, session: AsyncSession) -> None:
+@router.callback_query(F.data == "menu:help")
+async def cb_menu_help(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession, staff: Staff | None
+) -> None:
+    await reset_state(state)
     event = await get_event_settings(session)
-    text = event.help_text
-    if event.privacy_url:
-        text += f'\n\n<a href="{event.privacy_url}">Как мы обращаемся с данными</a>'
-    await message.answer(text, reply_markup=kb.main_menu())
+    await _edit(callback, event.help_text, kb.back_keyboard())

@@ -6,6 +6,7 @@
 """
 
 from aiogram import Bot, F, Router
+from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
@@ -14,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot import keyboards as kb
 from app.bot.render import staff_participant_card
 from app.bot.states import StaffAward, StaffLookup
-from app.models import Participant, Redemption, Staff, StaffRole
+from app.models import Participant, Redemption, RedemptionStatus, Staff, StaffRole
 from app.services.participants import find_by_qr_token, find_by_short_code
 from app.services.points import award_manual, get_balance
 from app.services.prizes import (
@@ -158,15 +159,26 @@ async def give_prize(
         "Приз выдавай после того, как придёт подтверждение."
     )
 
-    await bot.send_message(
-        target.tg_id,
-        f"🎁 Организатор предлагает выдать тебе:\n\n"
-        f"<b>{result.redemption.prize_title}</b>\n"
-        f"Спишется: <b>{fmt_points(result.redemption.cost_points)}</b>\n"
-        f"Останется: <b>{fmt_points(result.balance - result.redemption.cost_points)}</b>\n\n"
-        "Подтверди, если всё верно.",
-        reply_markup=kb.confirm_redemption_keyboard(result.redemption.id),
-    )
+    try:
+        await bot.send_message(
+            target.tg_id,
+            f"🎁 Организатор предлагает выдать тебе:\n\n"
+            f"<b>{result.redemption.prize_title}</b>\n"
+            f"Спишется: <b>{fmt_points(result.redemption.cost_points)}</b>\n"
+            f"Останется: <b>{fmt_points(result.balance - result.redemption.cost_points)}</b>\n\n"
+            "Подтверди, если всё верно.",
+            reply_markup=kb.confirm_redemption_keyboard(result.redemption.id),
+        )
+    except (TelegramForbiddenError, TelegramBadRequest):
+        # Участник заблокировал бота: подтверждение не доставить. Откатываем
+        # резерв, чтобы товар не завис и организатор не ждал зря.
+        await cancel_redemption(
+            session, result.redemption, comment="Участник заблокировал бота"
+        )
+        await callback.message.answer(
+            f"⚠️ {target.full_name} заблокировал бота — подтверждение не доставить.\n"
+            "Выдача отменена, товар вернулся на склад."
+        )
 
 
 def _redeem_error(result) -> str:
@@ -202,6 +214,12 @@ async def resolve_redemption(
         await callback.answer("Запрос не найден", show_alert=True)
         return
 
+    if redemption.status != RedemptionStatus.PENDING:
+        # Кнопки под сообщением живут вечно — двойное нажатие или нажатие
+        # после обработки вторым устройством не должно ничего ломать.
+        await callback.answer("Этот запрос уже обработан", show_alert=True)
+        return
+
     staff_tg = None
     if redemption.staff_id:
         staff_row = await session.get(Staff, redemption.staff_id)
@@ -212,8 +230,10 @@ async def resolve_redemption(
         await callback.answer("Отменено")
         await callback.message.edit_text("❌ Отменено. Баллы остались у тебя.")
         if staff_tg:
-            await bot.send_message(
-                staff_tg, f"❌ {participant.full_name} отменил выдачу «{redemption.prize_title}»"
+            await _notify(
+                bot,
+                staff_tg,
+                f"❌ {participant.full_name} отменил выдачу «{redemption.prize_title}»",
             )
         return
 
@@ -225,7 +245,8 @@ async def resolve_redemption(
             f"Не получилось списать баллы: {_redeem_error(result).lower()}"
         )
         if staff_tg:
-            await bot.send_message(
+            await _notify(
+                bot,
                 staff_tg,
                 f"⚠️ Выдача «{redemption.prize_title}» для {participant.full_name} "
                 f"не прошла: {_redeem_error(result).lower()}. Приз не выдавай.",
@@ -240,11 +261,21 @@ async def resolve_redemption(
         "Забирай приз у организатора!"
     )
     if staff_tg:
-        await bot.send_message(
+        await _notify(
+            bot,
             staff_tg,
             f"✅ Подтверждено. Выдай <b>{redemption.prize_title}</b> — {participant.full_name}.\n"
             f"Остаток баллов: {fmt_points(result.balance)}",
         )
+
+
+async def _notify(bot: Bot, tg_id: int, text: str) -> None:
+    """Уведомление второй стороне. Если получатель заблокировал бота —
+    молча пропускаем: транзакция уже сохранена, падать на ней нельзя."""
+    try:
+        await bot.send_message(tg_id, text)
+    except (TelegramForbiddenError, TelegramBadRequest):
+        pass
 
 
 @router.callback_query(F.data.startswith("award:"))
@@ -301,11 +332,17 @@ async def award_finish(
     await message.answer(
         f"Готово. {target.full_name}: {delta:+d} → баланс {fmt_points(balance)}"
     )
-    await bot.send_message(
-        target.tg_id,
-        f"{'➕' if delta > 0 else '➖'} Организатор изменил твой баланс: <b>{delta:+d}</b>\n"
-        f"Сейчас у тебя <b>{fmt_points(balance)}</b>",
-    )
+    try:
+        await bot.send_message(
+            target.tg_id,
+            f"{'➕' if delta > 0 else '➖'} Организатор изменил твой баланс: <b>{delta:+d}</b>\n"
+            f"Сейчас у тебя <b>{fmt_points(balance)}</b>",
+        )
+    except (TelegramForbiddenError, TelegramBadRequest):
+        await message.answer(
+            "⚠️ Уведомление не доставлено — участник заблокировал бота. "
+            "Баллы при этом начислены."
+        )
 
 
 @router.message(Command("staff"))

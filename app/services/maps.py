@@ -28,6 +28,9 @@ PENDING_FILL = (255, 255, 255)
 PENDING_OUTLINE = (120, 120, 130)
 PENDING_TEXT = (90, 90, 100)
 
+GRID_LINE = (215, 60, 60)  # красноватая сетка заметна на любой подложке
+GRID_TEXT = (180, 40, 40)
+
 MAX_SIDE = 1280  # больше Telegram всё равно сожмёт
 
 
@@ -104,6 +107,43 @@ def _render_cached(base_path: str, mtime: float, state: tuple) -> bytes:
     """
     markers = [(x, y, visited, label) for x, y, visited, label in state]
     return render_map(Path(base_path), markers)
+
+
+def render_grid_map(base_path: Path) -> bytes:
+    """Карта с сеткой каждые 10% — для админа, который ставит X/Y зон на глаз.
+
+    Подписи на осях = те самые проценты из полей «X на карте, %» и «Y на карте, %».
+    """
+    with Image.open(base_path) as src:
+        image = src.convert("RGB")
+
+    if max(image.size) > MAX_SIDE:
+        scale = MAX_SIDE / max(image.size)
+        image = image.resize(
+            (int(image.width * scale), int(image.height * scale)), Image.Resampling.LANCZOS
+        )
+
+    draw = ImageDraw.Draw(image)
+    font = get_font(max(18, min(image.size) // 45), bold=True)
+
+    for pct in range(10, 100, 10):
+        x = image.width * pct / 100
+        y = image.height * pct / 100
+        draw.line([(x, 0), (x, image.height)], fill=GRID_LINE, width=2)
+        draw.line([(0, y), (image.width, y)], fill=GRID_LINE, width=2)
+        # Подписи по верхней кромке и по левому краю
+        draw.text((x, 16), str(pct), font=font, fill=GRID_TEXT, anchor="mm")
+        draw.text((16, y), str(pct), font=font, fill=GRID_TEXT, anchor="mm")
+
+    draw.text(
+        (image.width / 2, image.height - 20),
+        "сетка = 10% · X от левого края · Y от верха",
+        font=font, fill=GRID_TEXT, anchor="mm",
+    )
+
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=88)
+    return buffer.getvalue()
 
 
 async def build_progress_map(

@@ -1,6 +1,15 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, utcnow
@@ -58,6 +67,18 @@ class Redemption(Base):
     """
 
     __tablename__ = "redemptions"
+    __table_args__ = (
+        # Один неподтверждённый запрос на участника. Закрывает гонку, когда
+        # два организатора одновременно сканируют одного человека на разных
+        # стойках: второй получит «уже есть запрос», а не двойной резерв.
+        Index(
+            "uq_redemption_pending_per_participant",
+            "participant_id",
+            unique=True,
+            sqlite_where=text("status = 'pending'"),
+            postgresql_where=text("status = 'pending'"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     participant_id: Mapped[int] = mapped_column(

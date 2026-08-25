@@ -3,14 +3,23 @@
 import re
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandObject, CommandStart
 from aiogram.fsm.context import FSMContext
 from aiogram.types import CallbackQuery, Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot import keyboards as kb
-from app.bot.render import profile_text
-from app.bot.states import Registration
+from app.bot.handlers.menu import drop_hub, send_hub
+from app.bot.states import (
+    HUB_KEY,
+    PRESERVED_KEYS,
+    Registration,
+    VIEW_KEY,
+    VIEW_PARTICIPANT,
+    VIEW_STAFF,
+    reset_state,
+)
 from app.models import Participant, Staff, StaffRole
 from app.services.event import get_event_settings
 from app.services.participants import (
@@ -29,6 +38,14 @@ NAME_RE = re.compile(r"^[А-Яа-яЁёA-Za-z][А-Яа-яЁёA-Za-z\- ]{0,49}$")
 STUDENT_ID_RE = re.compile(r"^[A-Za-z0-9\-/]{3,32}$")
 
 
+async def _preserve(state: FSMContext, **updates) -> None:
+    """Перезаписать FSM-данные, сохранив служебные ключи (id хаба)."""
+    data = await state.get_data()
+    preserved = {k: v for k, v in data.items() if k in PRESERVED_KEYS}
+    preserved.update(updates)
+    await state.set_data(preserved)
+
+
 @router.message(CommandStart())
 async def cmd_start(
     message: Message,
@@ -43,20 +60,34 @@ async def cmd_start(
     if payload.startswith(f"{PREFIX_STAFF}_"):
         from app.bot.handlers.staff import handle_staff_invite
 
+        await reset_state(state)
         await handle_staff_invite(message, session, payload[2:])
         return
 
     if payload.startswith(f"{PREFIX_PARTICIPANT}_"):
         from app.bot.handlers.staff import handle_participant_scan
 
+        await reset_state(state)
         await handle_participant_scan(message, session, staff, payload[2:])
         return
 
     if payload.startswith(f"{PREFIX_ACTIVITY}_"):
+        # Регистрацию не трогаем: человек мог сканировать зону прямо
+        # посреди анкеты — код досчитается после её завершения.
+        await reset_state(state, keep_registration=True)
         await _handle_activity_scan(message, state, session, participant, payload[2:])
         return
 
+    await reset_state(state, keep_registration=True)
     await _greet(message, state, session, participant, staff)
+
+
+async def _preserve(state: FSMContext, **updates) -> None:
+    """Перезаписать FSM-данные, сохранив служебные ключи (id хаба)."""
+    data = await state.get_data()
+    preserved = {k: v for k, v in data.items() if k == HUB_KEY}
+    preserved.update(updates)
+    await state.set_data(preserved)
 
 
 async def _greet(
@@ -69,24 +100,111 @@ async def _greet(
     event = await get_event_settings(session)
 
     if staff is not None and staff.is_active:
-        await state.clear()
-        hint = "\n\nУправление мероприятием — /admin" if staff.role in ADMIN_HINT_ROLES else ""
+        view = (await state.get_data()).get(VIEW_KEY)
+        if view == VIEW_STAFF:
+            await _preserve(state, **{VIEW_KEY: VIEW_STAFF})
+            await _send_staff_card(message, staff)
+            return
+        if view == VIEW_PARTICIPANT:
+            await _participant_greet(
+                message, state, session, participant, event, is_staff=True
+            )
+            return
+        # Режим ещё не выбран — спрашиваем. Прежний хаб убираем,
+        # чтобы чат не засорялся.
+        await drop_hub(message, state)
+        await state.set_data({})
         await message.answer(
+            f"<b>{staff.name}</b> · {staff.role_label}\n\nВ каком режиме зайти?",
+            reply_markup=kb.mode_choice_keyboard(),
+        )
+        return
+
+    await _participant_greet(message, state, session, participant, event)
+
+
+async def _participant_greet(
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    participant: Participant,
+    event,
+    *,
+    is_staff: bool = False,
+) -> None:
+    if participant.is_registered:
+        updates = {VIEW_KEY: VIEW_PARTICIPANT} if is_staff else {}
+        await _preserve(state, **updates)
+        await send_hub(message, state, session, participant, is_staff=is_staff)
+        return
+
+    await state.set_data({})
+    await message.answer(event.welcome_text)
+    await _ask_first_name(message, state, session)
+
+
+async def _send_staff_card(message: Message, staff: Staff) -> None:
+    hint = "\n\nУправление мероприятием — /admin" if staff.role in ADMIN_HINT_ROLES else ""
+    await message.answer(
+        f"<b>{staff.name}</b>\nРоль: {staff.role_label}\n\n"
+        "Наведи камеру на QR участника, чтобы открыть его карточку.\n"
+        "/find — поиск по коду" + hint,
+        reply_markup=kb.switch_to_participant_keyboard(),
+    )
+
+
+@router.callback_query(F.data == "mode:staff")
+async def cb_mode_staff(
+    callback: CallbackQuery, state: FSMContext, staff: Staff | None
+) -> None:
+    if staff is None or not staff.is_active:
+        await callback.answer("Этот раздел только для организаторов", show_alert=True)
+        return
+    await state.set_data({VIEW_KEY: VIEW_STAFF})
+    await callback.answer()
+    if callback.message:
+        hint = (
+            "\n\nУправление мероприятием — /admin"
+            if staff.role in ADMIN_HINT_ROLES
+            else ""
+        )
+        text = (
             f"<b>{staff.name}</b>\nРоль: {staff.role_label}\n\n"
             "Наведи камеру на QR участника, чтобы открыть его карточку.\n"
             "/find — поиск по коду" + hint
         )
-        return
+        try:
+            # Редактируем экран выбора на месте — сообщений не плодим.
+            await callback.message.edit_text(
+                text, reply_markup=kb.switch_to_participant_keyboard()
+            )
+        except TelegramBadRequest:
+            await callback.message.answer(
+                text, reply_markup=kb.switch_to_participant_keyboard()
+            )
 
-    if participant.is_registered:
-        await state.clear()
-        await message.answer(
-            await profile_text(session, participant), reply_markup=kb.main_menu()
+
+@router.callback_query(F.data == "mode:participant")
+async def cb_mode_participant(
+    callback: CallbackQuery,
+    state: FSMContext,
+    session: AsyncSession,
+    participant: Participant,
+    staff: Staff | None,
+) -> None:
+    is_staff = staff is not None and staff.is_active
+    await state.update_data(**{VIEW_KEY: VIEW_PARTICIPANT} if is_staff else {})
+    await callback.answer()
+    if callback.message:
+        # Убираем карточку организатора, чтобы в чате остался только хаб.
+        try:
+            await callback.message.delete()
+        except TelegramBadRequest:
+            pass
+        event = await get_event_settings(session)
+        await _participant_greet(
+            callback.message, state, session, participant, event, is_staff=is_staff
         )
-        return
-
-    await message.answer(event.welcome_text)
-    await _ask_first_name(message, state, session)
 
 
 async def _handle_activity_scan(
@@ -108,7 +226,7 @@ async def _handle_activity_scan(
         return
 
     result = await register_scan(session, participant, code)
-    await message.answer(_scan_text(result), reply_markup=kb.main_menu())
+    await message.answer(_scan_text(result), reply_markup=kb.menu_button_keyboard())
 
 
 def _scan_text(result) -> str:
@@ -234,6 +352,7 @@ async def reg_student_id(
     state: FSMContext,
     session: AsyncSession,
     participant: Participant,
+    staff: Staff | None,
 ) -> None:
     value = message.text.strip()
     if not STUDENT_ID_RE.match(value):
@@ -268,7 +387,9 @@ async def reg_student_id(
     )
     if bonus:
         text += f"\n\nПриветственный бонус: <b>+{fmt_points(bonus)}</b>"
-    await message.answer(text, reply_markup=kb.main_menu())
+    is_staff = staff is not None and staff.is_active
+    await message.answer(text)
+    await send_hub(message, state, session, participant, is_staff=is_staff)
 
     # Досчитываем зону, отсканированную до регистрации.
     pending = participant.pending_activity_code
@@ -306,14 +427,17 @@ async def cmd_id(message: Message, staff: Staff | None) -> None:
 
 @router.message(Command("cancel"))
 async def cmd_cancel(
-    message: Message, state: FSMContext, participant: Participant, staff: Staff | None
+    message: Message,
+    state: FSMContext,
+    session: AsyncSession,
+    participant: Participant,
+    staff: Staff | None,
 ) -> None:
     await state.clear()
-    if staff is not None and staff.is_active:
-        hint = " Управление — /admin" if staff.role in ADMIN_HINT_ROLES else ""
-        await message.answer(f"Отменил.{hint}")
-        return
-    if not participant.is_registered:
+    is_staff = staff is not None and staff.is_active
+    if not is_staff and not participant.is_registered:
         await message.answer("Отменил. Чтобы начать заново — /start")
         return
-    await message.answer("Отменил.", reply_markup=kb.main_menu())
+    # Возврат в свой режим: организатору снова предложим выбор,
+    # участник попадёт в меню.
+    await _greet(message, state, session, participant, staff)

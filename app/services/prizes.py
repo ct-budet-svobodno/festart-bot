@@ -7,7 +7,8 @@
 
 from dataclasses import dataclass
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import (
@@ -136,19 +137,38 @@ async def create_redemption(
             missing=prize.cost_points - balance,
         )
 
-    # Резервируем сразу: иначе две стойки одновременно раздадут последний экземпляр.
-    prize.stock_left -= 1
+    # Резервируем сразу: иначе две стойки одновременно раздадут последний
+    # экземпляр. Декремент атомарным UPDATE, а не через ORM-атрибут:
+    # два параллельных запроса не должны суметь списать один и тот же товар.
+    prize_id = prize.id  # до expire: доступ к атрибуту после него = sync-загрузка
+    reserved = await session.execute(
+        update(Prize)
+        .where(Prize.id == prize_id, Prize.stock_left > 0)
+        .values(stock_left=Prize.stock_left - 1)
+    )
+    if reserved.rowcount == 0:
+        return RedeemResult(status=RedeemStatus.OUT_OF_STOCK, prize=prize)
+    # Синхронизируем память с БД асинхронно: expire здесь дал бы ленивую
+    # sync-загрузку при следующем обращении к остатку (MissingGreenlet).
+    await session.refresh(prize, ["stock_left"])
 
     redemption = Redemption(
         participant_id=participant.id,
-        prize_id=prize.id,
+        prize_id=prize_id,
         staff_id=staff_id,
         prize_title=prize.title,
         cost_points=prize.cost_points,
         status=RedemptionStatus.PENDING,
     )
-    session.add(redemption)
-    await session.flush()
+    try:
+        # SAVEPOINT: гонка «два организатора сканируют одного участника»
+        # ловится индексом uq_redemption_pending_per_participant.
+        async with session.begin_nested():
+            session.add(redemption)
+            await session.flush()
+    except IntegrityError:
+        await _release_stock(session, redemption)
+        return RedeemResult(status=RedeemStatus.HAS_PENDING, prize=prize)
 
     return RedeemResult(
         status=RedeemStatus.OK, redemption=redemption, prize=prize, balance=balance
@@ -238,6 +258,9 @@ async def revert_redemption(
 async def _release_stock(session: AsyncSession, redemption: Redemption) -> None:
     if redemption.prize_id is None:
         return
-    prize = await session.get(Prize, redemption.prize_id)
-    if prize is not None:
-        prize.stock_left += 1
+    # Атомарный инкремент: параллельные возвраты не потеряют единицу товара.
+    await session.execute(
+        update(Prize)
+        .where(Prize.id == redemption.prize_id)
+        .values(stock_left=Prize.stock_left + 1)
+    )

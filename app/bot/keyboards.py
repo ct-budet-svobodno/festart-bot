@@ -1,42 +1,71 @@
 """Клавиатуры бота.
 
-Главное меню — reply-клавиатура: на фестивале человек идёт, смотрит в телефон
-одним глазом, крупные постоянно видимые кнопки надёжнее инлайновых.
-Внутри разделов используем инлайн.
+Меню участника — одно сообщение-хаб с инлайн-кнопками: разделы редактируют
+его на месте, чат не засоряется. Фото (QR, карта) улетают отдельными
+сообщениями — телеграм не умеет превращать текст в фото редактированием.
 """
 
-from aiogram.types import InlineKeyboardMarkup, ReplyKeyboardMarkup, ReplyKeyboardRemove
-from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
+from aiogram.types import (
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    ReplyKeyboardRemove,
+)
+from aiogram.utils.keyboard import InlineKeyboardBuilder
 
 from app.models import Activity, Faculty, Prize
-
-BTN_POINTS = "🏆 Мои баллы"
-BTN_QR = "🎫 Мой QR"
-BTN_MAP = "📍 Карта"
-BTN_ZONES = "✅ Мои зоны"
-BTN_WORKSHOPS = "🎓 Мастер-классы"
-BTN_PRIZES = "🎁 Призы"
-BTN_HELP = "❓ Помощь"
-
-MENU_BUTTONS = [
-    BTN_POINTS,
-    BTN_QR,
-    BTN_ZONES,
-    BTN_MAP,
-    BTN_WORKSHOPS,
-    BTN_PRIZES,
-    BTN_HELP,
-]
 
 remove_keyboard = ReplyKeyboardRemove()
 
 
-def main_menu() -> ReplyKeyboardMarkup:
-    builder = ReplyKeyboardBuilder()
-    for text in MENU_BUTTONS:
-        builder.button(text=text)
-    builder.adjust(2, 2, 2, 1)
-    return builder.as_markup(resize_keyboard=True, input_field_placeholder="Выбери раздел")
+def menu_keyboard(is_staff: bool = False) -> InlineKeyboardMarkup:
+    """Главное меню участника — живёт одним сообщением, разделы правят его."""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🎫 Мой QR", callback_data="menu:qr")
+    builder.button(text="✅ Мои зоны", callback_data="menu:zones")
+    builder.button(text="📍 Карта", callback_data="menu:map")
+    builder.button(text="🎓 Мастер-классы", callback_data="menu:ws")
+    builder.button(text="🎁 Призы", callback_data="menu:prizes")
+    builder.button(text="❓ Помощь", callback_data="menu:help")
+    if is_staff:
+        builder.button(text="🛠 Режим организатора", callback_data="mode:staff")
+        builder.adjust(2, 2, 2, 1, 1)
+    else:
+        builder.adjust(2, 2, 2, 1)
+    return builder.as_markup()
+
+
+def menu_button_keyboard() -> InlineKeyboardMarkup:
+    """Одна кнопка «Меню»: превращает текущее сообщение (например, результат
+    скана) в хаб, не плодя новых сообщений."""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="☰ Меню", callback_data="menu:main")
+    return builder.as_markup()
+
+
+def mode_choice_keyboard() -> InlineKeyboardMarkup:
+    """Выбор режима для того, кто и организатор, и участник."""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🛠 Войти как организатор", callback_data="mode:staff")
+    builder.button(text="👤 Войти как участник", callback_data="mode:participant")
+    builder.adjust(1)
+    return builder.as_markup()
+
+
+def switch_to_participant_keyboard() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="👤 Открыть участника", callback_data="mode:participant")
+    return builder.as_markup()
+
+
+def with_back(
+    markup: InlineKeyboardMarkup,
+    callback_data: str = "menu:main",
+    text: str = "← В меню",
+) -> InlineKeyboardMarkup:
+    """Добавить кнопку «назад» нижним рядом к готовой клавиатуре."""
+    rows = [list(row) for row in markup.inline_keyboard]
+    rows.append([InlineKeyboardButton(text=text, callback_data=callback_data)])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def faculties_keyboard(faculties: list[Faculty]) -> InlineKeyboardMarkup:
@@ -74,7 +103,9 @@ def workshops_keyboard(workshops: list[Activity]) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
-def back_keyboard(callback_data: str, text: str = "← Назад") -> InlineKeyboardMarkup:
+def back_keyboard(
+    callback_data: str = "menu:main", text: str = "← В меню"
+) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text=text, callback_data=callback_data)
     return builder.as_markup()

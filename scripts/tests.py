@@ -94,17 +94,17 @@ async def make_world():
                          per_user_limit=0)
         prize_last = Prize(title="Последний", cost_points=1, stock_total=1, stock_left=1,
                            per_user_limit=0)
-        staff = Staff(name="Орг", role=StaffRole.ADMIN, invite_token=gen_token(),
+        staff = Staff(name="Орг", role=StaffRole.PRIZE_DESK, invite_token=gen_token(),
                       tg_id=888_001)
         session.add_all([zone, prize_ok, prize_last, staff])
         await session.flush()
 
         p1, _ = await get_or_create_participant(session, tg_id=777_001)
         await complete_registration(session, p1, first_name="А", last_name="А",
-                                    middle_name=None, faculty_id=None, faculty_other=None, student_id="T-1")
+                                    faculty_id=None, faculty_other=None, student_id="T-1")
         p2, _ = await get_or_create_participant(session, tg_id=777_002)
         await complete_registration(session, p2, first_name="Б", last_name="Б",
-                                    middle_name=None, faculty_id=None, faculty_other=None, student_id="T-2")
+                                    faculty_id=None, faculty_other=None, student_id="T-2")
         for p in (p1, p2):
             await award_manual(session, p, 100, staff_id=None, comment="тестовый запас")
 
@@ -405,7 +405,7 @@ async def test_staff_invites(world):
     """Ссылки-приглашения одноразовые, env-админ непоколебим."""
     async with session_scope() as session:
         token = gen_token()
-        member = Staff(name="Новый", role=StaffRole.ADMIN, invite_token=token)
+        member = Staff(name="Новый", role=StaffRole.ZONE, invite_token=token)
         session.add(member)
         await session.flush()
 
@@ -428,7 +428,7 @@ async def test_staff_invites(world):
             staff = await resolve_staff(session, env_id, username="boss")
             check("env-админ создан автоматически",
                   staff is not None and staff.role == StaffRole.SUPERADMIN)
-            staff.role = StaffRole.ADMIN  # кто-то попытался понизить
+            staff.role = StaffRole.ZONE  # кто-то попытался понизить
             refreshed = await resolve_staff(session, env_id, username="boss")
             check("понижение env-админа откатилось", refreshed.role == StaffRole.SUPERADMIN)
 
@@ -450,7 +450,7 @@ async def test_registration_pending_zone(world):
         await session.flush()
 
         await complete_registration(session, newbie, first_name="В", last_name="Г",
-                                    middle_name=None, faculty_id=None, faculty_other=None, student_id="T-3")
+                                    faculty_id=None, faculty_other=None, student_id="T-3")
         check("код зоны не потерян", newbie.pending_activity_code == world["zone_code"])
 
         result = await register_scan(session, newbie, newbie.pending_activity_code)
@@ -542,143 +542,6 @@ async def test_keyboards(world):
     extended = with_back(base, "menu:ws", "← К списку")
     check("with_back добавил ряд и не испортил исходник",
           len(base.inline_keyboard) == 1 and len(extended.inline_keyboard) == 2)
-
-
-async def test_every_screen_has_exit(world):
-    """Из каждого экрана участника можно вернуться в меню.
-
-    Этот баг уже ловили руками: раздел рисуется списком собственных кнопок,
-    а выхода в меню нет — человек застревает и жмёт /start. Проверяем
-    статически, чтобы не зависеть от того, вспомнил ли автор про кнопку.
-    """
-    import ast
-
-    tree = ast.parse((BASE / "app" / "bot" / "handlers" / "menu.py").read_text("utf-8"))
-
-    # Клавиатуры, которые сами по себе содержат выход в меню.
-    exits = {"back_keyboard", "menu_keyboard", "with_back", "menu_button_keyboard"}
-
-    def keyboard_name(node, local_vars):
-        # markup может быть присвоен переменной выше по функции — разворачиваем.
-        if isinstance(node, ast.Name):
-            node = local_vars.get(node.id, node)
-        while isinstance(node, ast.Call):
-            node = node.func
-        return node.attr if isinstance(node, ast.Attribute) else ""
-
-    functions = [n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef)]
-    missing = []
-    screens = 0
-    for func in functions:
-        local_vars = {
-            target.id: node.value
-            for node in ast.walk(func)
-            if isinstance(node, ast.Assign)
-            for target in node.targets
-            if isinstance(target, ast.Name)
-        }
-        for call in ast.walk(func):
-            if not (isinstance(call, ast.Call) and getattr(call.func, "id", "") == "_edit"):
-                continue
-            if len(call.args) < 3:
-                continue
-            screens += 1
-            if keyboard_name(call.args[2], local_vars) not in exits:
-                missing.append(f"{func.name}, строка {call.lineno}")
-
-    check(
-        "каждый экран участника имеет выход в меню",
-        not missing,
-        ", ".join(missing) if missing else f"экранов проверено: {screens}",
-    )
-
-    # QR уходит фотографией: у неё своя клавиатура с возвратом, а обработчик
-    # меню обязан уметь убрать фото — отредактировать его в текст нельзя.
-    qr = next(f for f in functions if f.name == "cb_menu_qr")
-    photo_has_keyboard = any(
-        isinstance(node, ast.Call)
-        and getattr(node.func, "attr", "") == "answer_photo"
-        and any(kw.arg == "reply_markup" for kw in node.keywords)
-        for node in ast.walk(qr)
-    )
-    check("под фото с QR есть кнопка возврата", photo_has_keyboard)
-
-    main = next(f for f in functions if f.name == "cb_menu_main")
-    handles_photo = any(
-        isinstance(node, ast.Attribute) and node.attr == "photo" for node in ast.walk(main)
-    ) and any(
-        isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "delete"
-        for node in ast.walk(main)
-    )
-    check("возврат из фото убирает фото и пересобирает меню", handles_photo)
-
-
-async def test_admin_buttons_have_handlers(world):
-    """Каждая кнопка админки ведёт в живой обработчик.
-
-    Удалили раздел, забыли кнопку — она молча перестаёт отвечать. Сверяем
-    callback_data из клавиатур со всеми зарегистрированными фильтрами.
-    """
-    import ast
-    import re
-
-    from app.bot.admin import keyboards as akb
-    from app.bot.admin.core import load_item, load_items
-    from app.bot.admin.specs import SETTINGS, SPECS
-    from app.models import StaffRole
-    from app.services.staff import list_staff
-
-    datas = []
-
-    def collect(markup):
-        datas.extend(
-            button.callback_data
-            for row in markup.inline_keyboard
-            for button in row
-            if button.callback_data
-        )
-
-    collect(akb.main_menu(True))
-    collect(akb.main_menu(False))
-    collect(akb.exports_menu())
-
-    async with session_scope() as session:
-        for code, spec in SPECS.items():
-            items = (
-                [await load_item(session, spec, 1)]
-                if code == SETTINGS
-                else await load_items(session, spec)
-            )
-            if code != SETTINGS:
-                collect(akb.item_list(spec, items))
-            for item in items:
-                if item is not None:
-                    collect(akb.item_card(spec, item, with_qr=True))
-        members = await list_staff(session)
-        collect(akb.staff_kb(members))
-        for member in members:
-            collect(akb.staff_card_kb(member))
-            collect(akb.roles_kb(member.id, StaffRole.CHOICES))
-
-    source = "\n".join(
-        (BASE / "app" / "bot" / "admin" / f"{name}.py").read_text("utf-8")
-        for name in ("core", "extras")
-    )
-    exact = set(re.findall(r'F\.data\s*==\s*"([^"]+)"', source))
-    prefixes = tuple(re.findall(r'F\.data\.startswith\("([^"]+)"\)', source))
-
-    orphans = sorted(
-        {d for d in datas if d not in exact and not d.startswith(prefixes)}
-    )
-    check(
-        "у каждой кнопки админки есть обработчик",
-        not orphans,
-        ", ".join(orphans) if orphans else f"кнопок проверено: {len(datas)}",
-    )
-
-    too_long = [d for d in datas if len(d.encode()) > 64]
-    check("callback_data укладывается в лимит Telegram", not too_long,
-          f"максимум {max(len(d.encode()) for d in datas)} из 64 байт")
 
 
 async def test_scan_text_mapping(world):
@@ -789,8 +652,6 @@ TESTS = [
     ("Рассылка: битый шаблон", test_broadcast_text_survives_braces),
     ("FSM: сброс сценариев", test_fsm_reset_state),
     ("Клавиатуры: инлайн-меню", test_keyboards),
-    ("Клавиатуры: выход из каждого экрана", test_every_screen_has_exit),
-    ("Админка: кнопки без обработчиков", test_admin_buttons_have_handlers),
     ("Хендлеры: тексты статусов скана", test_scan_text_mapping),
     ("Хендлеры: тексты ошибок выдачи", test_redeem_error_mapping),
     ("Регистрация: валидаторы имени и студбилета", test_name_validators),

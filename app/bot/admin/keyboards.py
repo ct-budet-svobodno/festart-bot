@@ -7,8 +7,8 @@
 from aiogram.types import InlineKeyboardMarkup
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 
-from app.bot.admin.fields import BOOL, Field, display_value
-from app.bot.admin.specs import Spec, all_fields
+from app.bot.admin.fields import display_value
+from app.bot.admin.specs import Spec
 
 BACK = "ad:menu"
 
@@ -20,14 +20,21 @@ def main_menu(is_superadmin: bool) -> InlineKeyboardMarkup:
     builder.button(text="🎁 Призы", callback_data="ad:list:p")
     builder.button(text="📍 Зоны", callback_data="ad:list:z")
     builder.button(text="🎓 Мастер-классы", callback_data="ad:list:w")
-    builder.button(text="🏫 Факультеты", callback_data="ad:fac")
     builder.button(text="✍️ Тексты и бонусы", callback_data="ad:card:s:1")
     builder.button(text="🗺 Карта", callback_data="ad:map")
     builder.button(text="🔍 Найти участника", callback_data="ad:find")
     builder.button(text="📤 Выгрузки", callback_data="ad:export")
     if is_superadmin:
         builder.button(text="👥 Организаторы", callback_data="ad:staff")
-    builder.adjust(2, 2, 2, 2, 2, 1)
+    builder.adjust(2, 2, 2, 2, 1)
+    return builder.as_markup()
+
+
+def map_kb() -> InlineKeyboardMarkup:
+    builder = InlineKeyboardBuilder()
+    builder.button(text="🗺 Карта с сеткой (для X/Y зон)", callback_data="ad:mapgrid")
+    builder.button(text="← Меню", callback_data=BACK)
+    builder.adjust(1)
     return builder.as_markup()
 
 
@@ -40,7 +47,7 @@ def item_list(spec: Spec, items: list, extra_note: str = "") -> InlineKeyboardMa
             text=f"{mark}{item.title}{suffix}",
             callback_data=f"ad:card:{spec.code}:{item.id}",
         )
-    builder.button(text=f"➕ Добавить", callback_data=f"ad:new:{spec.code}")
+    builder.button(text="➕ Добавить", callback_data=f"ad:new:{spec.code}")
     builder.button(text="← Меню", callback_data=BACK)
     builder.adjust(1)
     return builder.as_markup()
@@ -179,4 +186,9 @@ def roles_kb(member_id: int, roles: list[tuple[str, str]]) -> InlineKeyboardMark
 
 
 def cancel_kb() -> InlineKeyboardMarkup:
-    return back_only("ad:menu", "Отмена")
+    """Кнопка под сообщением-подсказкой: удаляет его и гасит сценарий ввода.
+
+    Экран, с которого ввод начали (карточка, список), никуда не девался —
+    дублировать его заново не нужно.
+    """
+    return back_only("ad:cancel", "✖ Отмена")

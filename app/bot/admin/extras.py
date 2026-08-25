@@ -7,12 +7,19 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.admin import keyboards as akb
-from app.bot.admin.core import is_admin, render_screen
+from app.bot.admin.core import (
+    ask_input,
+    discard_input,
+    finish_input,
+    is_admin,
+    render_screen,
+)
 from app.bot.admin.states import AdminFaculty, AdminFind, AdminMap, AdminStaff
 from app.config import MEDIA_DIR
 from app.models import ActivityKind, Faculty, Staff, StaffRole
 from app.services.event import get_event_settings
 from app.services.exports import participants_csv, posters_zip
+from app.services.maps import map_image_path, render_grid_map
 from app.services.participants import find_by_short_code, find_by_student_id
 from app.services.qr import staff_link
 from app.services.staff import create_staff, list_staff
@@ -42,19 +49,25 @@ async def faculties(
     await _show_faculties(callback, session)
 
 
-async def _show_faculties(target, session: AsyncSession) -> None:
+async def _faculties_screen(session: AsyncSession) -> tuple[str, object]:
     rows = await session.scalars(select(Faculty).order_by(Faculty.sort_order, Faculty.id))
     items = list(rows.all())
-    text = (
-        "<b>🏫 Факультеты</b>\n\nПоказываются кнопками при регистрации.\n"
-        "Нажми на факультет, чтобы удалить."
-    )
     if not items:
         text = (
             "<b>🏫 Факультеты</b>\n\nСписок пуст — бот попросит участника "
             "вписать факультет вручную."
         )
-    await render_screen(target, text, akb.faculties_kb(items))
+    else:
+        text = (
+            "<b>🏫 Факультеты</b>\n\nПоказываются кнопками при регистрации.\n"
+            "Нажми на факультет, чтобы удалить."
+        )
+    return text, akb.faculties_kb(items)
+
+
+async def _show_faculties(target, session: AsyncSession) -> None:
+    text, markup = await _faculties_screen(session)
+    await render_screen(target, text, markup)
 
 
 @router.callback_query(F.data == "ad:facadd")
@@ -64,9 +77,10 @@ async def faculty_add(callback: CallbackQuery, state: FSMContext, staff: Staff |
         return
     await state.set_state(AdminFaculty.title)
     await callback.answer()
-    await callback.message.answer(
+    await ask_input(
+        callback,
+        state,
         "Название факультета.\n\nМожно прислать несколько строк — добавлю все.\nОтмена — /cancel",
-        reply_markup=akb.cancel_kb(),
     )
 
 
@@ -94,8 +108,8 @@ async def faculty_save(
 
     await session.flush()
     await state.clear()
-    await message.answer(f"✅ Добавлено: {added}")
-    await _show_faculties(message, session)
+    text, markup = await _faculties_screen(session)
+    await finish_input(message, state, f"✅ Добавлено: {added}\n\n{text}", markup)
 
 
 @router.callback_query(F.data.startswith("ad:facdel:"))
@@ -128,14 +142,19 @@ async def staff_list(
     await _show_staff(callback, session)
 
 
-async def _show_staff(target, session: AsyncSession) -> None:
+async def _staff_screen(session: AsyncSession) -> tuple[str, object]:
     members = await list_staff(session)
     text = (
         "<b>👥 Организаторы</b>\n\n"
         "🔑 постоянный из настроек · ✅ подключён · "
         "⏳ ждёт перехода по ссылке · ⏸ отключён"
     )
-    await render_screen(target, text, akb.staff_kb(members))
+    return text, akb.staff_kb(members)
+
+
+async def _show_staff(target, session: AsyncSession) -> None:
+    text, markup = await _staff_screen(session)
+    await render_screen(target, text, markup)
 
 
 @router.callback_query(F.data == "ad:stadd")
@@ -165,10 +184,11 @@ async def staff_add_name(
     await state.set_state(AdminStaff.name)
     await state.update_data(role=role)
     await callback.answer()
-    await callback.message.answer(
+    await ask_input(
+        callback,
+        state,
         f"Роль: <b>{StaffRole.LABELS[role]}</b>\n\n"
         "Теперь имя и фамилия организатора.\n\nОтмена — /cancel",
-        reply_markup=akb.cancel_kb(),
     )
 
 
@@ -189,12 +209,14 @@ async def staff_save(
         session, name=name, role=data.get("role", StaffRole.PRIZE_DESK)
     )
     await state.clear()
+    # Ссылку оставляем отдельным сообщением — её пересылают новому организатору.
     await message.answer(
         f"✅ <b>{member.name}</b> добавлен, роль: {member.role_label}\n\n"
         f"Перешли ему эту ссылку — она сработает один раз и только для него:\n"
         f"{staff_link(member.invite_token)}"
     )
-    await _show_staff(message, session)
+    text, markup = await _staff_screen(session)
+    await finish_input(message, state, text, markup)
 
 
 @router.callback_query(F.data.startswith("ad:st:"))
@@ -338,9 +360,10 @@ async def find_start(callback: CallbackQuery, state: FSMContext, staff: Staff | 
         return
     await state.set_state(AdminFind.query)
     await callback.answer()
-    await callback.message.answer(
+    await ask_input(
+        callback,
+        state,
         "Пришли шестизначный код участника или номер студенческого.\n\nОтмена — /cancel",
-        reply_markup=akb.cancel_kb(),
     )
 
 
@@ -361,6 +384,7 @@ async def find_run(
         return
 
     await state.clear()
+    await discard_input(message, state)
     from app.bot.handlers.staff import _show_participant
 
     await _show_participant(message, session, staff, target)
@@ -430,14 +454,45 @@ async def map_start(
 
     event = await get_event_settings(session)
     current = event.map_image or "не загружена"
-    await callback.message.answer(
+    await ask_input(
+        callback,
+        state,
         f"<b>🗺 Карта площадки</b>\n\n"
         f"Сейчас: <code>{current}</code>\n\n"
         f"Пришли новую картинку <b>файлом</b> — так Telegram не испортит её сжатием.\n"
         f"Оптимальная ширина 1280 пикселей.\n\n"
-        f"Позиции меток задаются в карточке каждой зоны, поля X и Y.\n\n"
+        f"Позиции меток — в карточке каждой зоны, поля X и Y: проценты от левого "
+        f"края (X) и от верха (Y). Чтобы не угадывать, нажми «🗺 Карта с сеткой» — "
+        f"пришлю твою карту с линейкой, по ней легко прикинуть цифры.\n\n"
         f"Отмена — /cancel",
-        reply_markup=akb.cancel_kb(),
+    )
+
+
+@router.callback_query(F.data == "ad:mapgrid")
+async def map_grid(
+    callback: CallbackQuery, session: AsyncSession, staff: Staff | None
+) -> None:
+    """Карта с сеткой 10% — чтобы X/Y зон ставились по глазомеру, а не наугад."""
+    if not is_admin(staff):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+
+    event = await get_event_settings(session)
+    base = map_image_path(event.map_image)
+    if base is None:
+        await callback.answer("Сначала загрузи карту", show_alert=True)
+        return
+
+    await callback.answer()
+    image = render_grid_map(base)
+    await callback.message.answer_photo(
+        BufferedInputFile(image, filename="map-grid.jpg"),
+        caption=(
+            "Красные линии — каждые 10%.\n"
+            "Числа сверху = X (от левого края), числа слева = Y (от верха).\n\n"
+            "Пример: зона у левого верхнего угла — примерно X=15, Y=20.\n"
+            "Впиши их в карточку зоны, потом проверь карту глазами участника."
+        ),
     )
 
 
@@ -480,4 +535,4 @@ async def map_upload(
     note = ""
     if message.photo:
         note = "\n\n<i>Прислано фото — Telegram его сжал. Для качества пришли файлом.</i>"
-    await message.answer(f"✅ Карта обновлена.{note}", reply_markup=akb.back_only())
+    await finish_input(message, state, f"✅ Карта обновлена.{note}", akb.map_kb())

@@ -4,7 +4,7 @@
 бот спросил значение — разобрал — сохранил — перерисовал карточку.
 """
 
-from aiogram import Bot, F, Router
+from aiogram import F, Router
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.types import BufferedInputFile, CallbackQuery, Message
@@ -14,7 +14,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.bot.admin import keyboards as akb
 from app.bot.admin.fields import BOOL, ParseError, display_value, parse_value, prompt_for
 from app.bot.admin.specs import (
-    PRIZE,
     SETTINGS,
     SPECS,
     WORKSHOP,
@@ -334,6 +333,96 @@ async def toggle_field(
 # --- Редактирование поля ---
 
 
+SRC_KEY = "src_message_id"
+
+
+@router.callback_query(F.data == "ad:cancel")
+async def cancel_input(
+    callback: CallbackQuery, state: FSMContext, session: AsyncSession, staff: Staff | None
+) -> None:
+    """«✖ Отмена» под подсказкой: убрать подсказку, погасить сценарий ввода.
+
+    Экран, с которого начали (карточка/список), остаётся в чате как был —
+    поэтому никакого нового меню не рисуем. Если сообщение старше 48 часов
+    и его нельзя удалить — превращаем его в меню админки.
+    """
+    if not is_admin(staff):
+        await callback.answer("Нет доступа", show_alert=True)
+        return
+    await state.clear()
+    await callback.answer("Отменено")
+    if callback.message is None:
+        return
+    try:
+        await callback.message.delete()
+        return
+    except Exception:
+        pass
+    event = await get_event_settings(session)
+    await render_screen(
+        callback,
+        f"<b>{event.event_title} · управление</b>\n{staff.name}, роль: {staff.role_label}",
+        akb.main_menu(staff.role == StaffRole.SUPERADMIN),
+    )
+
+
+async def ask_input(callback: CallbackQuery, state: FSMContext, prompt_text: str) -> None:
+    """Отправить подсказку для ввода и запомнить служебные id сообщений:
+    куда вернуть результат и какую подсказку потом убрать."""
+    src = callback.message.message_id if callback.message else None
+    await state.update_data(src_message_id=src)
+    if callback.message:
+        sent = await callback.message.answer(prompt_text, reply_markup=akb.cancel_kb())
+        await state.update_data(prompt_message_id=sent.message_id)
+
+
+async def discard_input(message: Message, state: FSMContext) -> None:
+    """Убрать подсказку с «Отменой» и сообщение с вводом. Результат показывается
+    отдельно новыми сообщениями (например, карточка участника после поиска)."""
+    data = await state.get_data()
+    prompt_id = data.get("prompt_message_id")
+    if prompt_id:
+        try:
+            await message.bot.delete_message(message.chat.id, prompt_id)
+        except Exception:
+            pass
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+
+async def finish_input(
+    message: Message, state: FSMContext, text: str, markup
+) -> None:
+    """Завершить сценарий ввода: убрать подсказку с «Отменой» и сообщение
+    с вводом, а результат показать в том экране, откуда ввод начали.
+    Если тот экран недоступен (старше 48 часов) — новым сообщением."""
+    data = await state.get_data()
+
+    prompt_id = data.get("prompt_message_id")
+    if prompt_id:
+        try:
+            await message.bot.delete_message(message.chat.id, prompt_id)
+        except Exception:
+            pass
+    try:
+        await message.delete()
+    except Exception:
+        pass
+
+    src = data.get(SRC_KEY)
+    if src:
+        try:
+            await message.bot.edit_message_text(
+                text, chat_id=message.chat.id, message_id=src, reply_markup=markup
+            )
+            return
+        except Exception:
+            pass
+    await message.answer(text, reply_markup=markup)
+
+
 @router.callback_query(F.data.startswith("ad:ed:"))
 async def edit_field(
     callback: CallbackQuery, state: FSMContext, session: AsyncSession, staff: Staff | None
@@ -355,9 +444,9 @@ async def edit_field(
     await callback.answer()
 
     current = display_value(field, getattr(item, field_key, None))
-    text = f"{prompt_for(field)}\n\nСейчас: <code>{current}</code>"
-    if callback.message:
-        await callback.message.answer(text, reply_markup=akb.cancel_kb())
+    await ask_input(
+        callback, state, f"{prompt_for(field)}\n\nСейчас: <code>{current}</code>"
+    )
 
 
 @router.message(AdminEdit.value, F.text)
@@ -387,8 +476,13 @@ async def save_field(
     await session.flush()
     await state.clear()
 
-    await message.answer(f"✅ {field.label} — обновлено")
-    await show_card(message, session, spec, item)
+    # Результат — в карточку, откуда ввод начали; подсказка удаляется.
+    await finish_input(
+        message,
+        state,
+        f"✅ {field.label} — обновлено\n\n{card_text(spec, item)}",
+        akb.item_card(spec, item, with_qr=spec.code in (ZONE, WORKSHOP)),
+    )
 
 
 # --- Создание ---
@@ -407,11 +501,9 @@ async def new_item(
     await state.set_state(AdminCreate.title)
     await state.update_data(spec_code=spec_code)
     await callback.answer()
-    if callback.message:
-        await callback.message.answer(
-            f"Название — как будет называться {spec.one}?\n\nОтмена — /cancel",
-            reply_markup=akb.cancel_kb(),
-        )
+    await ask_input(
+        callback, state, f"Название — как будет называться {spec.one}?\n\nОтмена — /cancel"
+    )
 
 
 @router.message(AdminCreate.title, F.text)
@@ -439,8 +531,12 @@ async def create_item(
     await session.flush()
     await state.clear()
 
-    await message.answer(f"✅ Добавлено. Теперь заполни остальные поля.")
-    await show_card(message, session, spec, item)
+    await finish_input(
+        message,
+        state,
+        f"✅ Добавлено. Теперь заполни остальные поля.\n\n{card_text(spec, item)}",
+        akb.item_card(spec, item, with_qr=spec.code in (ZONE, WORKSHOP)),
+    )
 
 
 # --- Удаление ---

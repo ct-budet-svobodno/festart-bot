@@ -99,6 +99,7 @@ ADMIN_TG_IDS=123456789,987654321
 | `python -m scripts.invite` | Ссылка-приглашение для суперадмина |
 | `python -m scripts.smoke` | Проверка логики бота |
 | `python -m scripts.smoke_admin` | Проверка логики админки |
+| `python -m scripts.tests` | Регрессионные тесты: гонки, дабл-клики, лимиты |
 | `uvicorn app.admin.main:app --port 8000` | Веб-панель (необязательно) |
 | `python -m scripts.broadcast --dry-run` | Посмотреть итоговую рассылку |
 | `python -m scripts.broadcast` | Разослать итоги дня |

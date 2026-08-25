@@ -99,9 +99,6 @@ async def complete_registration(
     participant.registered_at = utcnow()
 
     event = await get_event_settings(session)
-    if event.require_consent:
-        participant.consent_at = utcnow()
-
     bonus = event.registration_bonus
     if bonus > 0:
         await add_points(

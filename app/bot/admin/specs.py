@@ -43,7 +43,8 @@ PRIZE_SPEC = Spec(
         Field("stock_total", "Всего закуплено", INT, min_value=0, max_value=100000),
         Field("per_user_limit", "В одни руки", INT, min_value=0, max_value=100,
               hint="0 — без ограничения"),
-        Field("sort_order", "Порядок в списке", INT, min_value=0, max_value=10000),
+        Field("sort_order", "Порядок в списке", INT, min_value=0, max_value=10000,
+              hint="Меньше число — выше в списке. Можно не трогать"),
     ),
     toggles=(Field("is_active", "Показывать участникам", BOOL),),
 )
@@ -58,11 +59,15 @@ ZONE_SPEC = Spec(
         Field("description", "Описание", LONGTEXT),
         Field("location", "Место", TEXT),
         Field("points", "Баллов за посещение", INT, min_value=0, max_value=10000),
-        Field("map_x", "X на карте, %", PERCENT, hint="0 — левый край, 100 — правый"),
-        Field("map_y", "Y на карте, %", PERCENT, hint="0 — верх, 100 — низ"),
-        Field("sort_order", "Порядок", INT, min_value=0, max_value=10000),
+        Field("map_x", "X на карте, %", PERCENT,
+              hint="Процентов от левого края. Прикинь по карте с сеткой — она в разделе «Карта»"),
+        Field("map_y", "Y на карте, %", PERCENT,
+              hint="Процентов от верха. Прикинь по карте с сеткой — она в разделе «Карта»"),
+        Field("sort_order", "Порядок в списке", INT, min_value=0, max_value=10000,
+              hint="Меньше число — выше в списке. Можно не трогать"),
     ),
-    toggles=(Field("is_active", "Активна", BOOL),),
+    toggles=(Field("is_active", "Активна", BOOL,
+                   hint="Выключенная зона пропадёт у участников и не будет начислять баллы"),),
 )
 
 WORKSHOP_SPEC = Spec(
@@ -78,9 +83,11 @@ WORKSHOP_SPEC = Spec(
         Field("points", "Баллов за участие", INT, min_value=0, max_value=10000),
         Field("starts_at", "Начало", TIME),
         Field("ends_at", "Конец", TIME),
-        Field("sort_order", "Порядок", INT, min_value=0, max_value=10000),
+        Field("sort_order", "Порядок в списке", INT, min_value=0, max_value=10000,
+              hint="Меньше число — выше в списке. Обычно хватает времени начала"),
     ),
-    toggles=(Field("is_active", "Активен", BOOL),),
+    toggles=(Field("is_active", "Активен", BOOL,
+                   hint="Выключенный мастер-класс пропадёт из расписания"),),
 )
 
 SETTINGS_SPEC = Spec(
@@ -101,7 +108,6 @@ SETTINGS_SPEC = Spec(
               hint="Доступны {points} и {visits}"),
         Field("map_caption", "Подпись под картой", TEXT),
         Field("feedback_url", "Форма обратной связи", URL),
-        Field("privacy_url", "Политика обработки данных", URL),
         Field("registration_bonus", "Бонус за регистрацию", INT, min_value=0, max_value=10000),
         Field("all_zones_bonus", "Бонус за все зоны", INT, min_value=0, max_value=10000),
     ),
@@ -109,7 +115,6 @@ SETTINGS_SPEC = Spec(
         Field("is_registration_open", "Регистрация открыта", BOOL),
         Field("is_scanning_open", "Начисление баллов", BOOL),
         Field("is_redemption_open", "Выдача призов", BOOL),
-        Field("require_consent", "Фиксировать согласие на обработку данных", BOOL),
     ),
 )
 
