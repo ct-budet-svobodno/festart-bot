@@ -1,8 +1,8 @@
 """Меню участника: одно сообщение-хаб с инлайн-кнопками.
 
 Разделы не шлют новые сообщения, а редактируют хаб на месте — чат
-остаётся чистым. Исключение — QR и карта: это фото, телеграм не умеет
-превращать текст в фото редактированием, поэтому они улетают отдельно.
+остаётся чистым. Исключение — QR: это фото, телеграм не умеет
+превращать текст в фото редактированием, поэтому оно улетает отдельно.
 """
 
 from aiogram import F, Router
@@ -17,7 +17,6 @@ from app.bot.render import profile_text, workshop_card, zones_text
 from app.bot.states import HUB_KEY, reset_state
 from app.models import Activity, ActivityKind, Participant, Prize, Staff
 from app.services.event import get_event_settings
-from app.services.maps import build_progress_map
 from app.services.points import get_balance
 from app.services.prizes import active_prizes
 from app.services.qr import make_qr_png, participant_link
@@ -151,26 +150,6 @@ async def cb_menu_zones(
     await _edit(
         callback, await zones_text(session, participant), kb.back_keyboard()
     )
-
-
-@router.callback_query(F.data == "menu:map")
-async def cb_menu_map(
-    callback: CallbackQuery,
-    state: FSMContext,
-    session: AsyncSession, participant: Participant
-) -> None:
-    await reset_state(state)
-    if not await _require_registration(callback, participant):
-        return
-    image, caption = await build_progress_map(session, participant.id)
-    if image is None:
-        await callback.answer(caption or "Карта пока не загружена.", show_alert=True)
-        return
-    await callback.answer()
-    if callback.message:
-        await callback.message.answer_photo(
-            BufferedInputFile(image, filename="map.jpg"), caption=caption
-        )
 
 
 @router.callback_query(F.data == "menu:ws")

@@ -2,40 +2,38 @@
 
     python -m scripts.seed
 
-Заполняет базу примерами зон, мастер-классов, призов и факультетов,
-рисует placeholder-карту. Всё это потом правится и удаляется через админку.
+Заполняет базу примерами зон, мастер-классов, призов и факультетов.
+Всё это потом правится и удаляется через админку.
 Повторный запуск ничего не дублирует.
 """
 
 import asyncio
 from datetime import timedelta
 
-from PIL import Image, ImageDraw
 from sqlalchemy import func, select
 
-from app.config import MEDIA_DIR
 from app.db import init_db, session_scope
 from app.models import Activity, ActivityKind, Faculty, Prize, Staff, StaffRole, utcnow
 from app.services.event import get_event_settings
-from app.services.fonts import get_font
 from app.utils import gen_activity_code, gen_token
 
 FACULTIES = [
-    "Институт информационных технологий",
-    "Институт экономики и управления",
-    "Юридический институт",
-    "Гуманитарный институт",
-    "Инженерная школа",
-    "Институт биологии и химии",
+    "ФинФак",
+    "ИТиАБД",
+    "МЭО",
+    "ЮрФак",
+    "СНиМК",
+    "НАБ",
+    "ВШУ",
 ]
 
 ZONES = [
-    ("Фотозона у главного входа", 1, 18.0, 22.0),
-    ("Танцпол", 1, 42.0, 30.0),
-    ("Кибер-арена", 1, 70.0, 25.0),
-    ("Гончарная мастерская", 1, 25.0, 58.0),
-    ("Спортивный уголок", 1, 55.0, 65.0),
-    ("Фудкорт и настолки", 1, 80.0, 60.0),
+    ("Фотозона у главного входа", 1),
+    ("Танцпол", 1),
+    ("Кибер-арена", 1),
+    ("Гончарная мастерская", 1),
+    ("Спортивный уголок", 1),
+    ("Фудкорт и настолки", 1),
 ]
 
 WORKSHOPS = [
@@ -72,37 +70,6 @@ PRIZES = [
 ]
 
 
-def make_placeholder_map(path) -> None:
-    """Схематичная карта-заглушка, чтобы функцию можно было показать
-    до того, как дизайнеры отдадут настоящую."""
-    width, height = 1280, 900
-    image = Image.new("RGB", (width, height), (243, 244, 248))
-    draw = ImageDraw.Draw(image)
-
-    draw.rounded_rectangle((60, 60, width - 60, height - 60), radius=28, fill=(255, 255, 255))
-    for x, y, w, h, label in [
-        (140, 140, 380, 240, "Главный холл"),
-        (560, 140, 300, 240, "Сцена"),
-        (900, 140, 280, 240, "Кибер-зона"),
-        (140, 440, 340, 280, "Мастерские"),
-        (520, 440, 300, 280, "Спорт"),
-        (860, 440, 320, 280, "Фудкорт"),
-    ]:
-        draw.rounded_rectangle((x, y, x + w, y + h), radius=18, fill=(233, 236, 245))
-        draw.text(
-            (x + w / 2, y + h - 34), label, font=get_font(26), fill=(110, 114, 130), anchor="ms"
-        )
-
-    draw.text(
-        (width / 2, 104),
-        "СХЕМА ПЛОЩАДКИ · placeholder",
-        font=get_font(30, bold=True),
-        fill=(150, 154, 170),
-        anchor="ms",
-    )
-    image.save(path, format="JPEG", quality=90)
-
-
 async def seed() -> None:
     await init_db()
 
@@ -117,7 +84,7 @@ async def seed() -> None:
 
         activity_count = await session.scalar(select(func.count(Activity.id)))
         if not activity_count:
-            for order, (title, points, map_x, map_y) in enumerate(ZONES, start=1):
+            for order, (title, points) in enumerate(ZONES, start=1):
                 session.add(
                     Activity(
                         kind=ActivityKind.ZONE,
@@ -125,8 +92,6 @@ async def seed() -> None:
                         title=title,
                         points=points,
                         sort_order=order * 10,
-                        map_x=map_x,
-                        map_y=map_y,
                     )
                 )
             base = utcnow().replace(minute=0, second=0, microsecond=0)
@@ -172,14 +137,6 @@ async def seed() -> None:
                 )
             )
             print("  организатор: 1 (ссылку-приглашение возьми в админке)")
-
-        map_path = MEDIA_DIR / "map-placeholder.jpg"
-        if not map_path.exists():
-            make_placeholder_map(map_path)
-            print("  карта-заглушка нарисована")
-        if not event.map_image:
-            event.map_image = map_path.name
-            event.map_caption = "Это временная схема. Заменим на макет от дизайнеров."
 
         if not event.feedback_url:
             event.feedback_url = "https://forms.yandex.ru/"

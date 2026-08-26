@@ -24,6 +24,3 @@ class AdminStaff(StatesGroup):
 class AdminFind(StatesGroup):
     query = State()
 
-
-class AdminMap(StatesGroup):
-    photo = State()

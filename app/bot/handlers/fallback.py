@@ -6,9 +6,11 @@ from aiogram.types import Message
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.handlers.menu import send_hub
-from app.models import Participant, Staff
+from app.models import Participant, Staff, StaffRole
 
 router = Router()
+
+ADMIN_HINT_ROLES = {StaffRole.SUPERADMIN, StaffRole.ADMIN}
 
 
 @router.message(F.text)
@@ -19,6 +21,13 @@ async def unknown_text(
     participant: Participant,
     staff: Staff | None,
 ) -> None:
+    if staff is not None and staff.is_active:
+        # Организатору совет «нажми /start» ни к чему: у него свои команды.
+        await message.answer(
+            "Не понял. /start — меню, /find — найти участника"
+            + (", /admin — управление" if staff.role in ADMIN_HINT_ROLES else "")
+        )
+        return
     if not participant.is_registered:
         await message.answer("Чтобы начать, нажми /start")
         return

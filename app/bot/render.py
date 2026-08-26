@@ -4,20 +4,29 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Activity, ActivityKind, Participant, Visit
+from app.models import Activity, ActivityKind, Faculty, Participant, Visit
 from app.services.points import get_balance, zone_progress
 from app.services.prizes import participant_redemptions
 from app.utils import fmt_points, fmt_time
+
+
+async def _faculty_title(session: AsyncSession, participant: Participant) -> str:
+    if participant.faculty_id:
+        faculty = await session.get(Faculty, participant.faculty_id)
+        if faculty:
+            return faculty.title
+    return participant.faculty_other or "—"
 
 
 async def profile_text(session: AsyncSession, participant: Participant) -> str:
     balance = await get_balance(session, participant.id)
     visited, total = await zone_progress(session, participant.id)
     prizes = await participant_redemptions(session, participant.id)
+    faculty_title = await _faculty_title(session, participant)
 
     lines = [
         f"<b>{participant.full_name}</b>",
-        f"{participant.faculty_title}",
+        faculty_title,
         "",
         f"🏆 Баллы: <b>{fmt_points(balance)}</b>",
         f"✅ Зоны: <b>{visited} из {total}</b>",
@@ -89,10 +98,11 @@ async def staff_participant_card(session: AsyncSession, participant: Participant
     balance = await get_balance(session, participant.id)
     visited, total = await zone_progress(session, participant.id)
     prizes = await participant_redemptions(session, participant.id)
+    faculty_title = await _faculty_title(session, participant)
 
     lines = [
         f"<b>{participant.full_name}</b>",
-        f"{participant.faculty_title}",
+        faculty_title,
         f"Студ. билет: <code>{participant.student_id or '—'}</code>",
         "",
         f"🏆 Баланс: <b>{fmt_points(balance)}</b>",

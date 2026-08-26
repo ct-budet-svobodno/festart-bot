@@ -22,7 +22,7 @@ from app.bot.admin.specs import (  # noqa: E402
     find_field,
 )
 from app.bot.admin.core import kind_for, load_item, load_items  # noqa: E402
-from app.db import init_db, session_scope  # noqa: E402
+from app.db import engine, init_db, session_scope  # noqa: E402
 from app.models import Activity, ActivityKind, Prize, StaffRole  # noqa: E402
 from app.services.event import get_event_settings  # noqa: E402
 from app.services.exports import participants_csv, posters_zip  # noqa: E402
@@ -74,7 +74,9 @@ async def main() -> None:
     check("нормальная ссылка проходит",
           parse_value(url, "https://forms.yandex.ru/x") == "https://forms.yandex.ru/x")
 
-    xf = find_field(SPECS[ZONE], "map_x")
+    from app.bot.admin.fields import PERCENT, Field
+
+    xf = Field("x", "X", PERCENT)
     check("проценты с запятой", parse_value(xf, "42,5") == 42.5)
     try:
         parse_value(xf, "150")
@@ -158,7 +160,7 @@ async def main() -> None:
             stranger = await resolve_staff(session, 999999, None)
             check("посторонний не получает прав", stranger is None)
 
-            invited = await create_staff(session, name="Волонтёр", role=StaffRole.PRIZE_DESK)
+            invited = await create_staff(session, name="Волонтёр", role=StaffRole.ADMIN)
             invited.tg_id = 777001
             invited.is_active = True
             await session.flush()
@@ -167,7 +169,7 @@ async def main() -> None:
         async with session_scope() as session:
             # пытаемся понизить и отключить — модель должна остаться защищённой
             auto = await resolve_staff(session, 555001, "coordinator")
-            auto.role = StaffRole.ZONE
+            auto.role = StaffRole.ADMIN
             auto.is_active = False
             await session.flush()
 
@@ -207,6 +209,7 @@ async def main() -> None:
         empty, zero = await posters_zip(session, ActivityKind.ZONE)
         check("пустой ZIP не падает", zero == 0)
 
+    await engine.dispose()  # Windows не даёт удалить открытый файл базы
     TEST_DB.unlink(missing_ok=True)
 
     print()

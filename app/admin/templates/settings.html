@@ -4,12 +4,6 @@
 {% block content %}
 <div class="page-head"><h1>Настройки</h1></div>
 
-{% if error == 'type' %}
-<div class="alert alert-danger">Карта должна быть JPG, PNG или WebP.</div>
-{% elif error == 'size' %}
-<div class="alert alert-danger">Файл слишком большой — до 12 МБ.</div>
-{% endif %}
-
 <form method="post" action="/settings/save">
   <div class="card">
     <div class="card-head"><h2>Тексты бота</h2></div>
@@ -74,11 +68,6 @@
           <div class="field-hint">Начислится один раз, когда участник обойдёт все активные зоны.</div>
         </div>
       </div>
-      <div class="field">
-        <label for="map_caption">Подпись под картой площадки</label>
-        <input type="text" id="map_caption" name="map_caption" value="{{ event.map_caption or '' }}"
-               placeholder="Например: цифры на карте — номера зон">
-      </div>
     </div>
   </div>
 
@@ -108,64 +97,6 @@
     <button class="btn btn-primary" type="submit">Сохранить настройки</button>
   </div>
 </form>
-
-<div class="card">
-  <div class="card-head"><h2>Карта площадки</h2></div>
-  <div class="card-body">
-    {% if event.map_image %}
-    <img src="/media/{{ event.map_image }}" alt="Текущая карта"
-         style="max-width:100%;border:1px solid var(--line);border-radius:8px;margin-bottom:1rem">
-    {% else %}
-    <p class="dim">Карта не загружена — в боте вместо картинки показывается список зон.</p>
-    {% endif %}
-
-    <form method="post" action="/settings/map" enctype="multipart/form-data" class="btn-row">
-      <input type="file" name="map_file" accept="image/jpeg,image/png,image/webp" required style="flex:1;min-width:200px">
-      <button class="btn btn-primary" type="submit">Загрузить</button>
-    </form>
-    <div class="field-hint">
-      JPG, PNG или WebP до 12 МБ. Оптимальная ширина — 1280 пикселей: больше Telegram всё равно сожмёт.
-    </div>
-
-  </div>
-</div>
-
-<div class="card">
-  <div class="card-head">
-    <h2>Метки зон на карте</h2>
-    <span class="small faint">Координаты в процентах</span>
-  </div>
-  {% if zones %}
-  <form method="post" action="/settings/zones/positions">
-    <div class="table-scroll">
-      <table>
-        <thead><tr><th>№</th><th>Зона</th><th style="width:110px">X, %</th><th style="width:110px">Y, %</th></tr></thead>
-        <tbody>
-        {% for zone in zones %}
-          <tr>
-            <td class="num dim">{{ loop.index }}</td>
-            <td>{{ zone.title }}</td>
-            <td><input type="number" step="0.1" min="0" max="100" name="x_{{ zone.id }}"
-                       value="{{ zone.map_x if zone.map_x is not none else '' }}" aria-label="X для {{ zone.title }}"></td>
-            <td><input type="number" step="0.1" min="0" max="100" name="y_{{ zone.id }}"
-                       value="{{ zone.map_y if zone.map_y is not none else '' }}" aria-label="Y для {{ zone.title }}"></td>
-          </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    </div>
-    <div class="card-body">
-      <button class="btn btn-primary" type="submit">Сохранить метки</button>
-      <div class="field-hint">
-        0/0 — левый верхний угол картинки, 100/100 — правый нижний.
-        Номер строки совпадает с цифрой в кружке на карте у участника.
-      </div>
-    </div>
-  </form>
-  {% else %}
-  <div class="empty">Сначала добавьте зоны.</div>
-  {% endif %}
-</div>
 
 <div class="card">
   <div class="card-head"><h2>Факультеты</h2></div>

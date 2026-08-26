@@ -3,7 +3,6 @@ from datetime import datetime
 from sqlalchemy import (
     Boolean,
     DateTime,
-    Float,
     ForeignKey,
     Integer,
     String,
@@ -52,12 +51,6 @@ class Activity(Base, TimestampMixin):
     starts_at: Mapped[datetime | None] = mapped_column(DateTime)
     ends_at: Mapped[datetime | None] = mapped_column(DateTime)
 
-    # Позиция на карте площадки в процентах от ширины/высоты картинки.
-    # Проценты, а не пиксели: карту можно перезалить в другом разрешении,
-    # и отметки останутся на своих местах.
-    map_x: Mapped[float | None] = mapped_column(Float)
-    map_y: Mapped[float | None] = mapped_column(Float)
-
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
 
@@ -68,10 +61,6 @@ class Activity(Base, TimestampMixin):
     @property
     def is_workshop(self) -> bool:
         return self.kind == ActivityKind.WORKSHOP
-
-    @property
-    def has_map_position(self) -> bool:
-        return self.map_x is not None and self.map_y is not None
 
     def __repr__(self) -> str:
         return f"<Activity {self.code} {self.title}>"

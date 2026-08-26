@@ -22,15 +22,14 @@ def menu_keyboard(is_staff: bool = False) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="🎫 Мой QR", callback_data="menu:qr")
     builder.button(text="✅ Мои зоны", callback_data="menu:zones")
-    builder.button(text="📍 Карта", callback_data="menu:map")
     builder.button(text="🎓 Мастер-классы", callback_data="menu:ws")
     builder.button(text="🎁 Призы", callback_data="menu:prizes")
     builder.button(text="❓ Помощь", callback_data="menu:help")
     if is_staff:
         builder.button(text="🛠 Режим организатора", callback_data="mode:staff")
-        builder.adjust(2, 2, 2, 1, 1)
+        builder.adjust(2, 3, 1, 1)
     else:
-        builder.adjust(2, 2, 2, 1)
+        builder.adjust(2, 3, 1)
     return builder.as_markup()
 
 

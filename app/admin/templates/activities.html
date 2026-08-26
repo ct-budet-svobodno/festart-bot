@@ -39,12 +39,6 @@
           <td>
             <a href="/activities/{{ a.id }}"><strong>{{ a.title }}</strong></a>
             <div class="small faint mono">{{ a.code }}</div>
-            {% if kind == 'zone' %}
-              <div class="small faint">
-                {% if a.has_map_position %}на карте: {{ a.map_x }}% / {{ a.map_y }}%
-                {% else %}<span class="badge badge-mute">нет на карте</span>{% endif %}
-              </div>
-            {% endif %}
           </td>
           {% if kind == 'workshop' %}
           <td class="small">

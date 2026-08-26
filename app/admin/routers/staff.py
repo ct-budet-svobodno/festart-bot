@@ -30,7 +30,7 @@ async def index(request: Request, session: AsyncSession = Depends(get_session)):
 @router.post("/add")
 async def add(
     name: str = Form(...),
-    role: str = Form(StaffRole.ZONE),
+    role: str = Form(StaffRole.ADMIN),
     session: AsyncSession = Depends(get_session),
 ):
     await create_staff(session, name=name, role=role)

@@ -15,7 +15,7 @@ BASE = Path(__file__).resolve().parent.parent
 TEST_DB = BASE / "data" / "smoke-test.db"
 os.environ["DATABASE_URL"] = f"sqlite+aiosqlite:///{TEST_DB}"
 
-from app.db import init_db, session_scope  # noqa: E402
+from app.db import engine, init_db, session_scope  # noqa: E402
 from app.models import (  # noqa: E402
     Activity,
     ActivityKind,
@@ -26,7 +26,6 @@ from app.models import (  # noqa: E402
     StaffRole,
 )
 from app.services.event import get_event_settings  # noqa: E402
-from app.services.maps import build_progress_map  # noqa: E402
 from app.services.participants import (  # noqa: E402
     complete_registration,
     get_or_create_participant,
@@ -65,14 +64,13 @@ async def main() -> None:
         event = await get_event_settings(session)
         event.registration_bonus = 1
         event.all_zones_bonus = 5
-        event.map_image = "map-placeholder.jpg"
 
         faculty = Faculty(title="Институт информационных технологий")
         session.add(faculty)
 
         zones = [
             Activity(kind=ActivityKind.ZONE, code=gen_activity_code(), title=f"Зона {i}",
-                     points=2, map_x=20.0 * i, map_y=30.0)
+                     points=2)
             for i in range(1, 4)
         ]
         workshop = Activity(
@@ -82,7 +80,7 @@ async def main() -> None:
         prize_cheap = Prize(title="Наклейки", cost_points=3, stock_total=10, stock_left=10,
                             per_user_limit=0)
         prize_rare = Prize(title="Худи", cost_points=100, stock_total=1, stock_left=1)
-        staff = Staff(name="Организатор", role=StaffRole.PRIZE_DESK,
+        staff = Staff(name="Организатор", role=StaffRole.ADMIN,
                       invite_token=gen_token(), tg_id=999_000_1)
         session.add_all([*zones, workshop, prize_cheap, prize_rare, staff])
         await session.flush()
@@ -191,10 +189,6 @@ async def main() -> None:
     print("\n7. Картинки")
     async with session_scope() as session:
         participant = await _get(session, pid)
-        image, caption = await build_progress_map(session, participant.id)
-        check("карта отрисована", image is not None and len(image) > 5000,
-              f"{len(image) // 1024} КБ" if image else "нет файла карты")
-        check("подпись содержит прогресс", "Пройдено" in caption)
 
         qr = make_qr_png(participant_link(participant.qr_token))
         check("QR участника сгенерирован", len(qr) > 200, f"{len(qr)} байт")
@@ -219,6 +213,7 @@ async def main() -> None:
 
         participant.is_blocked = False
 
+    await engine.dispose()  # Windows не даёт удалить открытый файл базы
     TEST_DB.unlink(missing_ok=True)
 
     print()

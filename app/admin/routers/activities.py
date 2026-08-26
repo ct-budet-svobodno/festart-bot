@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.admin.helpers import (
     dt_input_value,
     form_bool,
-    form_float,
     form_int,
     form_str,
     parse_local_dt,
@@ -104,8 +103,6 @@ async def save_activity(
     points: str = Form("1"),
     starts_at: str = Form(""),
     ends_at: str = Form(""),
-    map_x: str = Form(""),
-    map_y: str = Form(""),
     sort_order: str = Form("100"),
     is_active: str = Form(""),
     session: AsyncSession = Depends(get_session),
@@ -125,8 +122,6 @@ async def save_activity(
     activity.points = max(0, form_int(points, 1))
     activity.starts_at = parse_local_dt(starts_at)
     activity.ends_at = parse_local_dt(ends_at)
-    activity.map_x = form_float(map_x)
-    activity.map_y = form_float(map_y)
     activity.sort_order = form_int(sort_order, 100)
     activity.is_active = form_bool(is_active)
 

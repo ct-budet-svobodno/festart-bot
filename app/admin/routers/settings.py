@@ -1,22 +1,18 @@
-"""Настройки мероприятия: тексты, ссылки, бонусы, рубильники, карта, факультеты."""
+"""Настройки мероприятия: тексты, ссылки, бонусы, рубильники, факультеты."""
 
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import RedirectResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.admin.helpers import form_bool, form_int, form_str, render
-from app.config import MEDIA_DIR
 from app.db import get_session
-from app.models import Activity, ActivityKind, Faculty
+from app.models import Faculty
 from app.services.event import get_event_settings
 
 router = APIRouter(prefix="/settings")
-
-ALLOWED_MAP_TYPES = {"image/jpeg", "image/png", "image/webp"}
-MAX_MAP_BYTES = 12 * 1024 * 1024
 
 
 @router.get("")
@@ -25,23 +21,12 @@ async def index(request: Request, session: AsyncSession = Depends(get_session)):
     faculties = list(
         (await session.scalars(select(Faculty).order_by(Faculty.sort_order, Faculty.id))).all()
     )
-    zones = list(
-        (
-            await session.scalars(
-                select(Activity)
-                .where(Activity.kind == ActivityKind.ZONE)
-                .order_by(Activity.sort_order, Activity.id)
-            )
-        ).all()
-    )
     return render(
         request,
         "settings.html",
         active="settings",
         event=event,
         faculties=faculties,
-        zones=zones,
-        error=request.query_params.get("error"),
     )
 
 
@@ -55,7 +40,6 @@ async def save(
     qr_hint_text: str = Form(""),
     feedback_url: str = Form(""),
     privacy_url: str = Form(""),
-    map_caption: str = Form(""),
     registration_bonus: str = Form("0"),
     all_zones_bonus: str = Form("0"),
     require_consent: str = Form(""),
@@ -74,7 +58,6 @@ async def save(
     event.qr_hint_text = qr_hint_text.strip() or event.qr_hint_text
     event.feedback_url = form_str(feedback_url)
     event.privacy_url = form_str(privacy_url)
-    event.map_caption = form_str(map_caption)
     event.registration_bonus = max(0, form_int(registration_bonus))
     event.all_zones_bonus = max(0, form_int(all_zones_bonus))
     event.require_consent = form_bool(require_consent)
@@ -117,52 +100,6 @@ def _safe_back(request: Request) -> str:
         return "/"
     path = urlparse(referer).path or "/"
     return path if path.startswith("/") and not path.startswith("//") else "/"
-
-
-@router.post("/map")
-async def upload_map(
-    map_file: UploadFile = File(...), session: AsyncSession = Depends(get_session)
-):
-    if map_file.content_type not in ALLOWED_MAP_TYPES:
-        return RedirectResponse("/settings?error=type", status_code=303)
-
-    payload = await map_file.read()
-    if len(payload) > MAX_MAP_BYTES:
-        return RedirectResponse("/settings?error=size", status_code=303)
-
-    suffix = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp"}[
-        map_file.content_type
-    ]
-    filename = f"map{suffix}"
-    (MEDIA_DIR / filename).write_bytes(payload)
-
-    event = await get_event_settings(session)
-    event.map_image = filename
-    return RedirectResponse("/settings", status_code=303)
-
-
-@router.post("/zones/positions")
-async def save_positions(request: Request, session: AsyncSession = Depends(get_session)):
-    """Координаты меток на карте задаются в процентах: карту можно перезалить
-    в другом разрешении, отметки останутся на месте."""
-    form = await request.form()
-    rows = await session.scalars(select(Activity).where(Activity.kind == ActivityKind.ZONE))
-    for zone in rows.all():
-        raw_x = form.get(f"x_{zone.id}")
-        raw_y = form.get(f"y_{zone.id}")
-        zone.map_x = _percent(raw_x)
-        zone.map_y = _percent(raw_y)
-    return RedirectResponse("/settings", status_code=303)
-
-
-def _percent(value) -> float | None:
-    if value is None or str(value).strip() == "":
-        return None
-    try:
-        number = float(str(value).replace(",", ".").strip())
-    except ValueError:
-        return None
-    return min(100.0, max(0.0, number))
 
 
 @router.post("/faculties/add")

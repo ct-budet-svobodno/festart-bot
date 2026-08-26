@@ -43,7 +43,6 @@ app = FastAPI(
 STATIC_DIR = BASE_DIR / "app" / "admin" / "static"
 STATIC_DIR.mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
-# Загруженная карта площадки — показываем её в настройках для проверки.
 app.mount("/media", StaticFiles(directory=str(MEDIA_DIR)), name="media")
 
 PUBLIC_PATHS = {"/login", "/logout", "/health"}
@@ -82,8 +81,9 @@ async def login_form(request: Request):
 
 @app.post("/login")
 async def login(request: Request, password: str = Form(...)):
-    # compare_digest, чтобы по времени ответа нельзя было подобрать пароль посимвольно.
-    if secrets.compare_digest(password, settings.admin_password):
+    # compare_digest, чтобы по времени ответа нельзя было подобрать пароль
+    # посимвольно. Сравниваем байты: на не-ASCII строках он падает.
+    if secrets.compare_digest(password.encode(), settings.admin_password.encode()):
         request.session["admin"] = True
         return RedirectResponse("/", status_code=303)
     return templates.TemplateResponse(

@@ -65,10 +65,6 @@ class EventSettings(Base, TimestampMixin):
     privacy_url: Mapped[str | None] = mapped_column(String(500))
     require_consent: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
-    # Имя файла карты в media/. Заливается через админку.
-    map_image: Mapped[str | None] = mapped_column(String(255))
-    map_caption: Mapped[str | None] = mapped_column(Text)
-
     registration_bonus: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     all_zones_bonus: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 

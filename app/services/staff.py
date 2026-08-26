@@ -50,7 +50,7 @@ async def resolve_staff(
 
 
 async def create_staff(
-    session: AsyncSession, *, name: str, role: str = StaffRole.ZONE
+    session: AsyncSession, *, name: str, role: str = StaffRole.ADMIN
 ) -> Staff:
     staff = Staff(name=name.strip(), role=role, invite_token=gen_token())
     session.add(staff)

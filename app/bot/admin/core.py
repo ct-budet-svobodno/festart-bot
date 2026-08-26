@@ -455,6 +455,7 @@ async def save_field(
 ) -> None:
     if not is_admin(staff):
         await state.clear()
+        await message.answer("Сценарий отменён — не хватает прав.")
         return
 
     data = await state.get_data()
@@ -512,6 +513,7 @@ async def create_item(
 ) -> None:
     if not is_admin(staff):
         await state.clear()
+        await message.answer("Сценарий отменён — не хватает прав.")
         return
 
     title = message.text.strip()
@@ -587,11 +589,11 @@ async def do_delete(
 
     await callback.answer("Удалено")
     items = await load_items(session, spec)
-    await render_screen(
-        callback,
-        f"<b>{spec.title}</b>\n\nВсего: {len(items)}.",
-        akb.item_list(spec, items),
-    )
+    if not items:
+        text = f"<b>{spec.title}</b>\n\nВсё удалено. Можно добавить заново."
+    else:
+        text = f"<b>{spec.title}</b>\n\nВсего: {len(items)}. Нажми, чтобы открыть."
+    await render_screen(callback, text, akb.item_list(spec, items))
 
 
 # --- Плакат ---

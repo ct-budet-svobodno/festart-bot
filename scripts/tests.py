@@ -94,7 +94,7 @@ async def make_world():
                          per_user_limit=0)
         prize_last = Prize(title="Последний", cost_points=1, stock_total=1, stock_left=1,
                            per_user_limit=0)
-        staff = Staff(name="Орг", role=StaffRole.PRIZE_DESK, invite_token=gen_token(),
+        staff = Staff(name="Орг", role=StaffRole.ADMIN, invite_token=gen_token(),
                       tg_id=888_001)
         session.add_all([zone, prize_ok, prize_last, staff])
         await session.flush()
@@ -405,7 +405,7 @@ async def test_staff_invites(world):
     """Ссылки-приглашения одноразовые, env-админ непоколебим."""
     async with session_scope() as session:
         token = gen_token()
-        member = Staff(name="Новый", role=StaffRole.ZONE, invite_token=token)
+        member = Staff(name="Новый", role=StaffRole.ADMIN, invite_token=token)
         session.add(member)
         await session.flush()
 
@@ -428,7 +428,7 @@ async def test_staff_invites(world):
             staff = await resolve_staff(session, env_id, username="boss")
             check("env-админ создан автоматически",
                   staff is not None and staff.role == StaffRole.SUPERADMIN)
-            staff.role = StaffRole.ZONE  # кто-то попытался понизить
+            staff.role = StaffRole.ADMIN  # кто-то попытался понизить
             refreshed = await resolve_staff(session, env_id, username="boss")
             check("понижение env-админа откатилось", refreshed.role == StaffRole.SUPERADMIN)
 

@@ -21,20 +21,11 @@ def main_menu(is_superadmin: bool) -> InlineKeyboardMarkup:
     builder.button(text="📍 Зоны", callback_data="ad:list:z")
     builder.button(text="🎓 Мастер-классы", callback_data="ad:list:w")
     builder.button(text="✍️ Тексты и бонусы", callback_data="ad:card:s:1")
-    builder.button(text="🗺 Карта", callback_data="ad:map")
     builder.button(text="🔍 Найти участника", callback_data="ad:find")
     builder.button(text="📤 Выгрузки", callback_data="ad:export")
     if is_superadmin:
         builder.button(text="👥 Организаторы", callback_data="ad:staff")
     builder.adjust(2, 2, 2, 2, 1)
-    return builder.as_markup()
-
-
-def map_kb() -> InlineKeyboardMarkup:
-    builder = InlineKeyboardBuilder()
-    builder.button(text="🗺 Карта с сеткой (для X/Y зон)", callback_data="ad:mapgrid")
-    builder.button(text="← Меню", callback_data=BACK)
-    builder.adjust(1)
     return builder.as_markup()
 
 

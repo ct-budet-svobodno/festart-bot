@@ -10,21 +10,17 @@ from app.models.base import Base, TimestampMixin
 class StaffRole:
     SUPERADMIN = "superadmin"  # всё, включая управление организаторами
     ADMIN = "admin"  # контент, статистика, откаты
-    PRIZE_DESK = "prize_desk"  # стойка выдачи призов
-    ZONE = "zone"  # подтверждение посещения зоны вручную
 
     CHOICES = [
         (SUPERADMIN, "Суперадмин"),
         (ADMIN, "Администратор"),
-        (PRIZE_DESK, "Выдача призов"),
-        (ZONE, "Организатор зоны"),
     ]
     LABELS = dict(CHOICES)
 
     # Кто имеет право выдавать призы.
-    CAN_REDEEM = {SUPERADMIN, ADMIN, PRIZE_DESK}
+    CAN_REDEEM = {SUPERADMIN, ADMIN}
     # Кто может начислять баллы вручную.
-    CAN_AWARD = {SUPERADMIN, ADMIN, PRIZE_DESK, ZONE}
+    CAN_AWARD = {SUPERADMIN, ADMIN}
     # Кто может откатывать операции.
     CAN_REVERT = {SUPERADMIN, ADMIN}
 
@@ -44,7 +40,7 @@ class Staff(Base, TimestampMixin):
     tg_username: Mapped[str | None] = mapped_column(String(64))
 
     name: Mapped[str] = mapped_column(String(200), nullable=False)
-    role: Mapped[str] = mapped_column(String(32), default=StaffRole.ZONE, nullable=False)
+    role: Mapped[str] = mapped_column(String(32), default=StaffRole.ADMIN, nullable=False)
 
     invite_token: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

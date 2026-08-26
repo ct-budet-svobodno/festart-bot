@@ -13,7 +13,7 @@
       <input type="text" name="name" placeholder="Имя и фамилия" required style="flex:1;min-width:200px">
       <select name="role" style="width:auto;min-width:180px">
         {% for value, label in roles %}
-        <option value="{{ value }}" {% if value == 'zone' %}selected{% endif %}>{{ label }}</option>
+        <option value="{{ value }}" {% if value == 'admin' %}selected{% endif %}>{{ label }}</option>
         {% endfor %}
       </select>
       <button class="btn btn-primary" type="submit">Создать приглашение</button>
@@ -85,8 +85,6 @@
       <tbody>
         <tr><td><strong>Суперадмин</strong></td><td class="small dim">Всё, включая управление организаторами</td></tr>
         <tr><td><strong>Администратор</strong></td><td class="small dim">Контент, статистика, откаты операций</td></tr>
-        <tr><td><strong>Выдача призов</strong></td><td class="small dim">Сканирует участников, выдаёт призы, начисляет баллы вручную</td></tr>
-        <tr><td><strong>Организатор зоны</strong></td><td class="small dim">Смотрит карточку участника и начисляет баллы вручную</td></tr>
       </tbody>
     </table>
   </div>
