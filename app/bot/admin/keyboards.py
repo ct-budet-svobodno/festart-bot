@@ -16,16 +16,15 @@ BACK = "ad:menu"
 def main_menu(is_superadmin: bool) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
     builder.button(text="📊 Сводка", callback_data="ad:stats")
-    builder.button(text="⚡️ Режимы", callback_data="ad:modes")
     builder.button(text="🎁 Призы", callback_data="ad:list:p")
     builder.button(text="📍 Зоны", callback_data="ad:list:z")
     builder.button(text="🎓 Мастер-классы", callback_data="ad:list:w")
-    builder.button(text="✍️ Тексты и бонусы", callback_data="ad:card:s:1")
+    builder.button(text="⚙️ Настройки", callback_data="ad:card:s:1")
     builder.button(text="🔍 Найти участника", callback_data="ad:find")
     builder.button(text="📤 Выгрузки", callback_data="ad:export")
     if is_superadmin:
         builder.button(text="👥 Организаторы", callback_data="ad:staff")
-    builder.adjust(2, 2, 2, 2, 1)
+    builder.adjust(2, 2, 2, 1)
     return builder.as_markup()
 
 
@@ -52,18 +51,29 @@ def _list_suffix(spec: Spec, item) -> str:
 
 def item_card(spec: Spec, item, *, with_qr: bool = False) -> InlineKeyboardMarkup:
     builder = InlineKeyboardBuilder()
-    for field in spec.fields:
-        value = display_value(field, getattr(item, field.key, None))
-        builder.button(
-            text=f"{field.label}: {value}",
-            callback_data=f"ad:ed:{spec.code}:{item.id}:{field.key}",
-        )
-    for field in spec.toggles:
-        state = "✅" if getattr(item, field.key, False) else "⬜️"
-        builder.button(
-            text=f"{state} {field.label}",
-            callback_data=f"ad:tg:{spec.code}:{item.id}:{field.key}",
-        )
+
+    def add_fields():
+        for field in spec.fields:
+            value = display_value(field, getattr(item, field.key, None))
+            builder.button(
+                text=f"{field.label}: {value}",
+                callback_data=f"ad:ed:{spec.code}:{item.id}:{field.key}",
+            )
+
+    def add_toggles():
+        for field in spec.toggles:
+            state = "✅" if getattr(item, field.key, False) else "⬜️"
+            builder.button(
+                text=f"{state} {field.label}",
+                callback_data=f"ad:tg:{spec.code}:{item.id}:{field.key}",
+            )
+
+    if spec.toggles_first:
+        add_toggles()
+        add_fields()
+    else:
+        add_fields()
+        add_toggles()
     if with_qr:
         builder.button(text="🖨 Плакат с QR", callback_data=f"ad:qr:{item.id}")
     if spec.code != "s":
@@ -74,19 +84,6 @@ def item_card(spec: Spec, item, *, with_qr: bool = False) -> InlineKeyboardMarku
     builder.adjust(1)
     return builder.as_markup()
 
-
-def toggles_only(spec: Spec, item) -> InlineKeyboardMarkup:
-    """Экран рубильников: только переключатели, крупно, без лишнего."""
-    builder = InlineKeyboardBuilder()
-    for field in spec.toggles:
-        state = "✅ включено" if getattr(item, field.key, False) else "⛔️ выключено"
-        builder.button(
-            text=f"{field.label} — {state}",
-            callback_data=f"ad:tgm:{spec.code}:{item.id}:{field.key}",
-        )
-    builder.button(text="← Меню", callback_data=BACK)
-    builder.adjust(1)
-    return builder.as_markup()
 
 
 def confirm_delete(spec: Spec, item_id: int) -> InlineKeyboardMarkup:

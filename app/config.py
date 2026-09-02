@@ -3,6 +3,7 @@
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -35,6 +36,24 @@ class Settings(BaseSettings):
     admin_base_url: str = "http://localhost:8000"
 
     timezone: str = "Europe/Moscow"
+
+    @field_validator("database_url")
+    @classmethod
+    def _absolute_sqlite_path(cls, value: str) -> str:
+        """Относительный путь к SQLite превращаем в абсолютный.
+
+        В .env путь пишется как data/festart.db — коротко и понятно. Но он
+        считается от текущей директории процесса, а не от проекта: запустил
+        бота или админку не из корня — и SQLite молча пытается открыть базу
+        в другом месте, падая с «unable to open database file».
+        """
+        prefix = "sqlite+aiosqlite:///"
+        if not value.startswith(prefix):
+            return value
+        path = value[len(prefix):]
+        if not path or path.startswith("/") or path.startswith(":memory:"):
+            return value
+        return prefix + str(BASE_DIR / path)
 
     @property
     def admin_ids(self) -> set[int]:

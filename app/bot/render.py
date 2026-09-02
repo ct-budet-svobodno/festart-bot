@@ -25,8 +25,8 @@ async def profile_text(session: AsyncSession, participant: Participant) -> str:
     faculty_title = await _faculty_title(session, participant)
 
     lines = [
-        f"<b>{participant.full_name}</b>",
-        faculty_title,
+        f"<b>ФИО:</b> {participant.full_name}",
+        f"<b>Факультет:</b> {faculty_title}",
         "",
         f"🏆 Баллы: <b>{fmt_points(balance)}</b>",
         f"✅ Зоны: <b>{visited} из {total}</b>",

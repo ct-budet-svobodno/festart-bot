@@ -27,6 +27,9 @@ class Spec:
     one: str  # как называется одна запись
     fields: tuple[Field, ...]
     toggles: tuple[Field, ...] = ()
+    # Показывать переключатели выше полей: в настройках мероприятия рубильники
+    # нужны на бегу, а тексты правят заранее.
+    toggles_first: bool = False
 
 
 PRIZE_SPEC = Spec(
@@ -87,6 +90,7 @@ WORKSHOP_SPEC = Spec(
 
 SETTINGS_SPEC = Spec(
     code=SETTINGS,
+    toggles_first=True,
     model=EventSettings,
     title="Настройки",
     one="настройки",

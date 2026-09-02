@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.bot.admin import keyboards as akb
-from app.bot.admin.fields import BOOL, ParseError, display_value, parse_value, prompt_for
+from app.bot.admin.fields import ParseError, display_value, parse_value, prompt_for
 from app.bot.admin.specs import (
     SETTINGS,
     SPECS,
@@ -217,51 +217,6 @@ async def show_stats(
             lines.append(f"{prize.stock_left} шт · {prize.title}")
 
     await render_screen(callback, "\n".join(lines), akb.back_only())
-
-
-# --- Режимы ---
-
-
-@router.callback_query(F.data == "ad:modes")
-async def show_modes(
-    callback: CallbackQuery, session: AsyncSession, staff: Staff | None
-) -> None:
-    if not is_admin(staff):
-        await callback.answer("Нет доступа", show_alert=True)
-        return
-    await callback.answer()
-    event = await get_event_settings(session)
-    await render_screen(callback, _modes_text(), akb.toggles_only(SPECS[SETTINGS], event))
-
-
-def _modes_text() -> str:
-    return (
-        "<b>⚡️ Режимы</b>\n\n"
-        "Нажми, чтобы переключить. Применяется мгновенно.\n\n"
-        "<i>Выключенное начисление баллов останавливает сканирование QR на всех зонах.</i>"
-    )
-
-
-@router.callback_query(F.data.startswith("ad:tgm:"))
-async def toggle_mode(
-    callback: CallbackQuery, session: AsyncSession, staff: Staff | None
-) -> None:
-    if not is_admin(staff):
-        await callback.answer("Нет доступа", show_alert=True)
-        return
-
-    _, _, spec_code, _, field_key = callback.data.split(":")
-    spec = SPECS[spec_code]
-    field = find_field(spec, field_key)
-    event = await get_event_settings(session)
-    if field is None or field.kind != BOOL:
-        await callback.answer("Не получилось")
-        return
-
-    setattr(event, field_key, not getattr(event, field_key))
-    await session.flush()
-    await callback.answer("Готово" if getattr(event, field_key) else "Выключено")
-    await render_screen(callback, _modes_text(), akb.toggles_only(spec, event))
 
 
 # --- Списки и карточки ---

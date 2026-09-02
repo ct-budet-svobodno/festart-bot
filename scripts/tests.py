@@ -592,14 +592,93 @@ async def test_every_screen_has_exit(world):
         ", ".join(missing) if missing else f"экранов проверено: {screens}",
     )
 
-    # QR уходит фотографией, а к фото клавиатуру не прицепить: вместо неё
-    # под фото пересобирается сам хаб.
+    # QR уходит фотографией: у неё своя клавиатура с возвратом, а обработчик
+    # меню обязан уметь убрать фото — отредактировать его в текст нельзя.
     qr = next(f for f in functions if f.name == "cb_menu_qr")
-    sends_hub = any(
-        isinstance(node, ast.Call) and getattr(node.func, "id", "") == "send_hub"
+    photo_has_keyboard = any(
+        isinstance(node, ast.Call)
+        and getattr(node.func, "attr", "") == "answer_photo"
+        and any(kw.arg == "reply_markup" for kw in node.keywords)
         for node in ast.walk(qr)
     )
-    check("после фото с QR меню пересобирается под ним", sends_hub)
+    check("под фото с QR есть кнопка возврата", photo_has_keyboard)
+
+    main = next(f for f in functions if f.name == "cb_menu_main")
+    handles_photo = any(
+        isinstance(node, ast.Attribute) and node.attr == "photo" for node in ast.walk(main)
+    ) and any(
+        isinstance(node, ast.Call) and getattr(node.func, "attr", "") == "delete"
+        for node in ast.walk(main)
+    )
+    check("возврат из фото убирает фото и пересобирает меню", handles_photo)
+
+
+async def test_admin_buttons_have_handlers(world):
+    """Каждая кнопка админки ведёт в живой обработчик.
+
+    Удалили раздел, забыли кнопку — она молча перестаёт отвечать. Сверяем
+    callback_data из клавиатур со всеми зарегистрированными фильтрами.
+    """
+    import ast
+    import re
+
+    from app.bot.admin import keyboards as akb
+    from app.bot.admin.core import load_item, load_items
+    from app.bot.admin.specs import SETTINGS, SPECS
+    from app.models import StaffRole
+    from app.services.staff import list_staff
+
+    datas = []
+
+    def collect(markup):
+        datas.extend(
+            button.callback_data
+            for row in markup.inline_keyboard
+            for button in row
+            if button.callback_data
+        )
+
+    collect(akb.main_menu(True))
+    collect(akb.main_menu(False))
+    collect(akb.exports_menu())
+
+    async with session_scope() as session:
+        for code, spec in SPECS.items():
+            items = (
+                [await load_item(session, spec, 1)]
+                if code == SETTINGS
+                else await load_items(session, spec)
+            )
+            if code != SETTINGS:
+                collect(akb.item_list(spec, items))
+            for item in items:
+                if item is not None:
+                    collect(akb.item_card(spec, item, with_qr=True))
+        members = await list_staff(session)
+        collect(akb.staff_kb(members))
+        for member in members:
+            collect(akb.staff_card_kb(member))
+            collect(akb.roles_kb(member.id, StaffRole.CHOICES))
+
+    source = "\n".join(
+        (BASE / "app" / "bot" / "admin" / f"{name}.py").read_text("utf-8")
+        for name in ("core", "extras")
+    )
+    exact = set(re.findall(r'F\.data\s*==\s*"([^"]+)"', source))
+    prefixes = tuple(re.findall(r'F\.data\.startswith\("([^"]+)"\)', source))
+
+    orphans = sorted(
+        {d for d in datas if d not in exact and not d.startswith(prefixes)}
+    )
+    check(
+        "у каждой кнопки админки есть обработчик",
+        not orphans,
+        ", ".join(orphans) if orphans else f"кнопок проверено: {len(datas)}",
+    )
+
+    too_long = [d for d in datas if len(d.encode()) > 64]
+    check("callback_data укладывается в лимит Telegram", not too_long,
+          f"максимум {max(len(d.encode()) for d in datas)} из 64 байт")
 
 
 async def test_scan_text_mapping(world):
@@ -711,6 +790,7 @@ TESTS = [
     ("FSM: сброс сценариев", test_fsm_reset_state),
     ("Клавиатуры: инлайн-меню", test_keyboards),
     ("Клавиатуры: выход из каждого экрана", test_every_screen_has_exit),
+    ("Админка: кнопки без обработчиков", test_admin_buttons_have_handlers),
     ("Хендлеры: тексты статусов скана", test_scan_text_mapping),
     ("Хендлеры: тексты ошибок выдачи", test_redeem_error_mapping),
     ("Регистрация: валидаторы имени и студбилета", test_name_validators),

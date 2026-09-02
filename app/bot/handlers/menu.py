@@ -111,6 +111,20 @@ async def cb_menu_main(
     await reset_state(state)
     if not await _require_registration(callback, participant):
         return
+
+    if callback.message and callback.message.photo:
+        # Пришли с QR: фото в текст не превращается, поэтому убираем его
+        # и пересобираем хаб — меню снова оказывается последним сообщением.
+        await callback.answer()
+        try:
+            await callback.message.delete()
+        except TelegramBadRequest:
+            pass
+        await send_hub(
+            callback.message, state, session, participant, is_staff=_is_staff(staff)
+        )
+        return
+
     await _edit(
         callback,
         await profile_text(session, participant),
@@ -124,7 +138,6 @@ async def cb_menu_qr(
     state: FSMContext,
     session: AsyncSession,
     participant: Participant,
-    staff: Staff | None,
 ) -> None:
     await reset_state(state)
     if not await _require_registration(callback, participant):
@@ -135,14 +148,12 @@ async def cb_menu_qr(
     await callback.answer()
     if not callback.message:
         return
+    # Клавиатуру к фото прицепить можно, а вот отредактировать фото обратно
+    # в текст — нет, поэтому возврат обрабатывается отдельно (см. cb_menu_main).
     await callback.message.answer_photo(
         BufferedInputFile(png, filename="my-qr.png"),
         caption=f"<b>{participant.full_name}</b>\n\n{caption}",
-    )
-    # Фото выталкивает хаб за верхнюю границу экрана, и вернуться в меню
-    # становится неоткуда. Пересобираем хаб под фотографией.
-    await send_hub(
-        callback.message, state, session, participant, is_staff=_is_staff(staff)
+        reply_markup=kb.back_keyboard(),
     )
 
 
