@@ -13,3 +13,6 @@ itsdangerous>=2.2
 qrcode[pil]>=7.4
 Pillow>=10.4
 APScheduler>=3.10
+
+# Только для scripts/smoke_web.py — TestClient из starlette
+httpx2>=0.28

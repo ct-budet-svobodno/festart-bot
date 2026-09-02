@@ -544,6 +544,64 @@ async def test_keyboards(world):
           len(base.inline_keyboard) == 1 and len(extended.inline_keyboard) == 2)
 
 
+async def test_every_screen_has_exit(world):
+    """Из каждого экрана участника можно вернуться в меню.
+
+    Этот баг уже ловили руками: раздел рисуется списком собственных кнопок,
+    а выхода в меню нет — человек застревает и жмёт /start. Проверяем
+    статически, чтобы не зависеть от того, вспомнил ли автор про кнопку.
+    """
+    import ast
+
+    tree = ast.parse((BASE / "app" / "bot" / "handlers" / "menu.py").read_text("utf-8"))
+
+    # Клавиатуры, которые сами по себе содержат выход в меню.
+    exits = {"back_keyboard", "menu_keyboard", "with_back", "menu_button_keyboard"}
+
+    def keyboard_name(node, local_vars):
+        # markup может быть присвоен переменной выше по функции — разворачиваем.
+        if isinstance(node, ast.Name):
+            node = local_vars.get(node.id, node)
+        while isinstance(node, ast.Call):
+            node = node.func
+        return node.attr if isinstance(node, ast.Attribute) else ""
+
+    functions = [n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef)]
+    missing = []
+    screens = 0
+    for func in functions:
+        local_vars = {
+            target.id: node.value
+            for node in ast.walk(func)
+            if isinstance(node, ast.Assign)
+            for target in node.targets
+            if isinstance(target, ast.Name)
+        }
+        for call in ast.walk(func):
+            if not (isinstance(call, ast.Call) and getattr(call.func, "id", "") == "_edit"):
+                continue
+            if len(call.args) < 3:
+                continue
+            screens += 1
+            if keyboard_name(call.args[2], local_vars) not in exits:
+                missing.append(f"{func.name}, строка {call.lineno}")
+
+    check(
+        "каждый экран участника имеет выход в меню",
+        not missing,
+        ", ".join(missing) if missing else f"экранов проверено: {screens}",
+    )
+
+    # QR уходит фотографией, а к фото клавиатуру не прицепить: вместо неё
+    # под фото пересобирается сам хаб.
+    qr = next(f for f in functions if f.name == "cb_menu_qr")
+    sends_hub = any(
+        isinstance(node, ast.Call) and getattr(node.func, "id", "") == "send_hub"
+        for node in ast.walk(qr)
+    )
+    check("после фото с QR меню пересобирается под ним", sends_hub)
+
+
 async def test_scan_text_mapping(world):
     """Все статусы скана имеют человекочитаемый ответ, ни один не пустой."""
     from app.bot.handlers.start import _scan_text
@@ -652,6 +710,7 @@ TESTS = [
     ("Рассылка: битый шаблон", test_broadcast_text_survives_braces),
     ("FSM: сброс сценариев", test_fsm_reset_state),
     ("Клавиатуры: инлайн-меню", test_keyboards),
+    ("Клавиатуры: выход из каждого экрана", test_every_screen_has_exit),
     ("Хендлеры: тексты статусов скана", test_scan_text_mapping),
     ("Хендлеры: тексты ошибок выдачи", test_redeem_error_mapping),
     ("Регистрация: валидаторы имени и студбилета", test_name_validators),

@@ -122,7 +122,9 @@ async def cb_menu_main(
 async def cb_menu_qr(
     callback: CallbackQuery,
     state: FSMContext,
-    session: AsyncSession, participant: Participant
+    session: AsyncSession,
+    participant: Participant,
+    staff: Staff | None,
 ) -> None:
     await reset_state(state)
     if not await _require_registration(callback, participant):
@@ -131,11 +133,17 @@ async def cb_menu_qr(
     png = make_qr_png(participant_link(participant.qr_token), box_size=12, border=3)
     caption = event.qr_hint_text.format(short_code=participant.short_code)
     await callback.answer()
-    if callback.message:
-        await callback.message.answer_photo(
-            BufferedInputFile(png, filename="my-qr.png"),
-            caption=f"<b>{participant.full_name}</b>\n\n{caption}",
-        )
+    if not callback.message:
+        return
+    await callback.message.answer_photo(
+        BufferedInputFile(png, filename="my-qr.png"),
+        caption=f"<b>{participant.full_name}</b>\n\n{caption}",
+    )
+    # Фото выталкивает хаб за верхнюю границу экрана, и вернуться в меню
+    # становится неоткуда. Пересобираем хаб под фотографией.
+    await send_hub(
+        callback.message, state, session, participant, is_staff=_is_staff(staff)
+    )
 
 
 @router.callback_query(F.data == "menu:zones")
@@ -170,15 +178,15 @@ async def cb_menu_workshops(
     workshops = list(rows.all())
     if not workshops:
         await _edit(
-        callback,
-        "Расписание пока не опубликовано. Загляни чуть позже.",
-        kb.back_keyboard(),
-    )
+            callback,
+            "Расписание пока не опубликовано. Загляни чуть позже.",
+            kb.back_keyboard(),
+        )
         return
     await _edit(
         callback,
         "<b>Мастер-классы и активности</b>\nНажми, чтобы прочитать подробности.",
-        kb.workshops_keyboard(workshops),
+        kb.with_back(kb.workshops_keyboard(workshops)),
     )
 
 
