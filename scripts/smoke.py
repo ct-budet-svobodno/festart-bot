@@ -105,7 +105,7 @@ async def main() -> None:
         bonus = await complete_registration(
             session, participant,
             first_name="Егор", last_name="Тестов",
-            faculty_id=faculty_id, faculty_other=None, student_id="21ИТ042",
+            middle_name=None, faculty_id=faculty_id, faculty_other=None, student_id="21ИТ042",
         )
         check("регистрация завершена", participant.is_registered)
         check("начислен приветственный бонус", bonus == 1, f"{bonus} б.")

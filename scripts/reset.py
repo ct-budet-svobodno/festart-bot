@@ -2,8 +2,9 @@
 
     python -m scripts.reset --participants   # только участники и их баллы
     python -m scripts.reset --all            # ещё и призы вернуть на склад
+    python -m scripts.reset --content        # снести зоны, мастер-классы, призы
 
-Контент — зоны, мастер-классы, призы, тексты, организаторы — не трогаем.
+Факультеты, тексты мероприятия и организаторы не трогаются никогда.
 Скрипт спрашивает подтверждение: удаление участников необратимо.
 """
 
@@ -15,6 +16,7 @@ from sqlalchemy import delete, func, select, update
 
 from app.db import session_scope
 from app.models import (
+    Activity,
     Participant,
     PointsLedger,
     Prize,
@@ -27,14 +29,14 @@ from app.models import (
 async def counts() -> dict[str, int]:
     async with session_scope() as session:
         result = {}
-        for model in (Participant, Visit, PointsLedger, Redemption):
+        for model in (Participant, Visit, PointsLedger, Redemption, Activity, Prize):
             result[model.__name__] = int(
                 await session.scalar(select(func.count()).select_from(model)) or 0
             )
         return result
 
 
-async def reset(*, restock: bool) -> None:
+async def reset(*, restock: bool, wipe_content: bool = False) -> None:
     async with session_scope() as session:
         if restock:
             # Возвращаем на склад всё, что было зарезервировано или выдано.
@@ -60,6 +62,11 @@ async def reset(*, restock: bool) -> None:
         for model in (Redemption, PointsLedger, Visit, Participant):
             await session.execute(delete(model))
 
+        if wipe_content:
+            # Призы удаляем после выдач — на них стоит внешний ключ.
+            for model in (Activity, Prize):
+                await session.execute(delete(model))
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Сброс данных участников")
@@ -67,10 +74,12 @@ def main() -> None:
                         help="удалить участников, посещения, баллы и выдачи")
     parser.add_argument("--all", action="store_true",
                         help="то же самое плюс вернуть призы на склад")
+    parser.add_argument("--content", action="store_true",
+                        help="удалить зоны, мастер-классы и призы")
     parser.add_argument("--yes", action="store_true", help="без подтверждения")
     args = parser.parse_args()
 
-    if not (args.participants or args.all):
+    if not (args.participants or args.all or args.content):
         parser.print_help()
         sys.exit(1)
 
@@ -80,15 +89,19 @@ def main() -> None:
         print(f"  {name:14} {value}")
     if args.all:
         print("\nПризы будут возвращены на склад.")
-    print("\nЗоны, мастер-классы, призы, тексты и организаторы останутся на месте.")
+    if args.content:
+        print("\nЗоны, мастер-классы и призы будут удалены полностью.")
+    else:
+        print("\nЗоны, мастер-классы и призы останутся на месте.")
+    print("Факультеты, тексты мероприятия и организаторы не трогаются.")
 
     if not args.yes:
-        answer = input('\nУдалить участников? Напиши "да": ').strip().lower()
+        answer = input('\nПродолжить? Напиши "да": ').strip().lower()
         if answer not in {"да", "yes", "y"}:
             print("Отменено.")
             return
 
-    asyncio.run(reset(restock=args.all))
+    asyncio.run(reset(restock=args.all, wipe_content=args.content))
     after = asyncio.run(counts())
     print("\nГотово. Осталось:")
     for name, value in after.items():

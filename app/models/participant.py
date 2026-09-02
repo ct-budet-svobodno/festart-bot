@@ -37,6 +37,7 @@ class Participant(Base, TimestampMixin):
 
     first_name: Mapped[str | None] = mapped_column(String(100))
     last_name: Mapped[str | None] = mapped_column(String(100))
+    middle_name: Mapped[str | None] = mapped_column(String(100))
     faculty_id: Mapped[int | None] = mapped_column(ForeignKey("faculties.id", ondelete="SET NULL"))
     faculty_other: Mapped[str | None] = mapped_column(String(200))
     student_id: Mapped[str | None] = mapped_column(String(32), unique=True, index=True)
@@ -61,7 +62,7 @@ class Participant(Base, TimestampMixin):
 
     @property
     def full_name(self) -> str:
-        parts = [p for p in (self.last_name, self.first_name) if p]
+        parts = [p for p in (self.last_name, self.first_name, self.middle_name) if p]
         return " ".join(parts) or (self.tg_username and f"@{self.tg_username}") or f"id{self.tg_id}"
 
     @property

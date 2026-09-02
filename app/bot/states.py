@@ -29,10 +29,11 @@ async def reset_state(state: FSMContext, *, keep_registration: bool = False) -> 
 
 
 class Registration(StatesGroup):
-    """Порядок как в ТЗ: имя, фамилия, факультет, номер студенческого."""
+    """Фамилия, имя, отчество, факультет, номер студенческого билета."""
 
-    first_name = State()
     last_name = State()
+    first_name = State()
+    middle_name = State()
     faculty = State()
     faculty_other = State()
     student_id = State()

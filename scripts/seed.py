@@ -18,13 +18,14 @@ from app.services.event import get_event_settings
 from app.utils import gen_activity_code, gen_token
 
 FACULTIES = [
-    "ФинФак",
     "ИТиАБД",
-    "МЭО",
-    "ЮрФак",
-    "СНиМК",
-    "НАБ",
     "ВШУ",
+    "СНиМК",
+    "ФинФак",
+    "ЮрФак",
+    "МЭО",
+    "ФЭБ",
+    "НАБ",
 ]
 
 ZONES = [

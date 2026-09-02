@@ -101,10 +101,10 @@ async def make_world():
 
         p1, _ = await get_or_create_participant(session, tg_id=777_001)
         await complete_registration(session, p1, first_name="А", last_name="А",
-                                    faculty_id=None, faculty_other=None, student_id="T-1")
+                                    middle_name=None, faculty_id=None, faculty_other=None, student_id="T-1")
         p2, _ = await get_or_create_participant(session, tg_id=777_002)
         await complete_registration(session, p2, first_name="Б", last_name="Б",
-                                    faculty_id=None, faculty_other=None, student_id="T-2")
+                                    middle_name=None, faculty_id=None, faculty_other=None, student_id="T-2")
         for p in (p1, p2):
             await award_manual(session, p, 100, staff_id=None, comment="тестовый запас")
 
@@ -450,7 +450,7 @@ async def test_registration_pending_zone(world):
         await session.flush()
 
         await complete_registration(session, newbie, first_name="В", last_name="Г",
-                                    faculty_id=None, faculty_other=None, student_id="T-3")
+                                    middle_name=None, faculty_id=None, faculty_other=None, student_id="T-3")
         check("код зоны не потерян", newbie.pending_activity_code == world["zone_code"])
 
         result = await register_scan(session, newbie, newbie.pending_activity_code)

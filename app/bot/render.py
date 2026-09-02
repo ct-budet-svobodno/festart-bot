@@ -27,6 +27,7 @@ async def profile_text(session: AsyncSession, participant: Participant) -> str:
     lines = [
         f"<b>ФИО:</b> {participant.full_name}",
         f"<b>Факультет:</b> {faculty_title}",
+        f"<b>Номер билета:</b> {participant.student_id or '—'}",
         "",
         f"🏆 Баллы: <b>{fmt_points(balance)}</b>",
         f"✅ Зоны: <b>{visited} из {total}</b>",

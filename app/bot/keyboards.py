@@ -76,6 +76,13 @@ def faculties_keyboard(faculties: list[Faculty]) -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 
+def skip_middle_name_keyboard() -> InlineKeyboardMarkup:
+    """Отчества может не быть — не вынуждаем придумывать или ставить прочерк."""
+    builder = InlineKeyboardBuilder()
+    builder.button(text="Пропустить", callback_data="reg:nomid")
+    return builder.as_markup()
+
+
 def prizes_keyboard(prizes: list[Prize], balance: int) -> InlineKeyboardMarkup:
     """Список призов для участника — только просмотр, выдаёт организатор."""
     builder = InlineKeyboardBuilder()

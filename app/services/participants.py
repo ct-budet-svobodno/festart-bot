@@ -82,6 +82,7 @@ async def complete_registration(
     *,
     first_name: str,
     last_name: str,
+    middle_name: str | None,
     faculty_id: int | None,
     faculty_other: str | None,
     student_id: str,
@@ -92,6 +93,7 @@ async def complete_registration(
     """
     participant.first_name = first_name.strip()
     participant.last_name = last_name.strip()
+    participant.middle_name = middle_name.strip() if middle_name else None
     participant.faculty_id = faculty_id
     participant.faculty_other = faculty_other
     participant.student_id = student_id.strip()

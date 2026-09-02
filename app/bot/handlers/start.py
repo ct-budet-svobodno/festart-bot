@@ -140,7 +140,7 @@ async def _participant_greet(
 
     await state.set_data({})
     await message.answer(event.welcome_text)
-    await _ask_first_name(message, state, session)
+    await _start_registration(message, state, session)
 
 
 async def _send_staff_card(message: Message, staff: Staff) -> None:
@@ -222,7 +222,7 @@ async def _handle_activity_scan(
             "Почти! Сначала быстрая регистрация — это меньше минуты.\n"
             "Баллы за зону начислим сразу после неё."
         )
-        await _ask_first_name(message, state, session)
+        await _start_registration(message, state, session)
         return
 
     result = await register_scan(session, participant, code)
@@ -260,15 +260,26 @@ def _scan_text(result) -> str:
 # --- Регистрация ---
 
 
-async def _ask_first_name(
+async def _start_registration(
     message: Message, state: FSMContext, session: AsyncSession
 ) -> None:
     event = await get_event_settings(session)
     if not event.is_registration_open:
         await message.answer("Регистрация закрыта. Подойди к стойке организаторов.")
         return
+    await state.set_state(Registration.last_name)
+    await message.answer("Напиши свою фамилию.", reply_markup=kb.remove_keyboard)
+
+
+@router.message(Registration.last_name, F.text)
+async def reg_last_name(message: Message, state: FSMContext) -> None:
+    value = message.text.strip()
+    if not NAME_RE.match(value):
+        await message.answer("Похоже на опечатку. Напиши фамилию буквами, без цифр.")
+        return
+    await state.update_data(last_name=value)
     await state.set_state(Registration.first_name)
-    await message.answer("Как тебя зовут? Напиши имя.", reply_markup=kb.remove_keyboard)
+    await message.answer("Теперь имя.")
 
 
 @router.message(Registration.first_name, F.text)
@@ -278,20 +289,42 @@ async def reg_first_name(message: Message, state: FSMContext) -> None:
         await message.answer("Похоже на опечатку. Напиши имя буквами, без цифр.")
         return
     await state.update_data(first_name=value)
-    await state.set_state(Registration.last_name)
-    await message.answer("Отлично. Теперь фамилия.")
+    await state.set_state(Registration.middle_name)
+    await message.answer(
+        "И отчество.", reply_markup=kb.skip_middle_name_keyboard()
+    )
 
 
-@router.message(Registration.last_name, F.text)
-async def reg_last_name(
+@router.message(Registration.middle_name, F.text)
+async def reg_middle_name(
     message: Message, state: FSMContext, session: AsyncSession
 ) -> None:
     value = message.text.strip()
     if not NAME_RE.match(value):
-        await message.answer("Похоже на опечатку. Напиши фамилию буквами, без цифр.")
+        await message.answer(
+            "Похоже на опечатку. Напиши отчество буквами "
+            "или нажми «Пропустить», если его нет."
+        )
         return
-    await state.update_data(last_name=value)
+    await state.update_data(middle_name=value)
+    await _ask_faculty(message, state, session)
 
+
+@router.callback_query(Registration.middle_name, F.data == "reg:nomid")
+async def reg_no_middle_name(
+    callback: CallbackQuery, state: FSMContext, session: AsyncSession
+) -> None:
+    """У части участников отчества нет — не заставляем выдумывать."""
+    await callback.answer()
+    await state.update_data(middle_name=None)
+    if callback.message:
+        await callback.message.edit_text("Отчество: <i>не указано</i>")
+        await _ask_faculty(callback.message, state, session)
+
+
+async def _ask_faculty(
+    message: Message, state: FSMContext, session: AsyncSession
+) -> None:
     faculties = await get_faculties(session)
     if not faculties:
         await state.set_state(Registration.faculty_other)
@@ -374,6 +407,7 @@ async def reg_student_id(
         participant,
         first_name=data["first_name"],
         last_name=data["last_name"],
+        middle_name=data.get("middle_name"),
         faculty_id=data.get("faculty_id"),
         faculty_other=data.get("faculty_other"),
         student_id=value,

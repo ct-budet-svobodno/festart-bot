@@ -59,7 +59,7 @@ async def seed_world() -> dict:
         participant, _ = await get_or_create_participant(session, tg_id=888_888)
         await complete_registration(
             session, participant, first_name="Веб", last_name="Тестов",
-            faculty_id=None, faculty_other="Тестовый", student_id="WEB-1",
+            middle_name=None, faculty_id=None, faculty_other="Тестовый", student_id="WEB-1",
         )
         await session.flush()
 
