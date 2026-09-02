@@ -1,12 +1,16 @@
-"""Демо-данные для показа и разработки.
+"""Начальное наполнение базы.
 
-    python -m scripts.seed
+    python -m scripts.seed              # факультеты + демо-зоны, МК и призы
+    python -m scripts.seed --faculties  # только факультеты, без демо-контента
 
-Заполняет базу примерами зон, мастер-классов, призов и факультетов.
-Всё это потом правится и удаляется через админку.
+На боевом сервере нужен второй вариант: справочник факультетов без него
+пустой и при регистрации бот попросит вписать факультет руками, а зоны
+и призы вы заводите свои через /admin.
+
 Повторный запуск ничего не дублирует.
 """
 
+import argparse
 import asyncio
 from datetime import timedelta
 
@@ -71,7 +75,7 @@ PRIZES = [
 ]
 
 
-async def seed() -> None:
+async def seed(*, faculties_only: bool = False) -> None:
     await init_db()
 
     async with session_scope() as session:
@@ -82,6 +86,10 @@ async def seed() -> None:
             for order, title in enumerate(FACULTIES, start=1):
                 session.add(Faculty(title=title, sort_order=order * 10))
             print(f"  факультеты: {len(FACULTIES)}")
+
+        if faculties_only:
+            print("  демо-контент пропущен")
+            return
 
         activity_count = await session.scalar(select(func.count(Activity.id)))
         if not activity_count:
@@ -147,5 +155,13 @@ async def seed() -> None:
     print("Готово.")
 
 
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Наполнение базы ФЕСТАРТа")
+    parser.add_argument("--faculties", action="store_true",
+                        help="только факультеты, без демо-зон, МК и призов")
+    args = parser.parse_args()
+    asyncio.run(seed(faculties_only=args.faculties))
+
+
 if __name__ == "__main__":
-    asyncio.run(seed())
+    main()
