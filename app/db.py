@@ -47,8 +47,3 @@ async def session_scope() -> AsyncIterator[AsyncSession]:
             await session.rollback()
             raise
 
-
-async def get_session() -> AsyncIterator[AsyncSession]:
-    """Зависимость для FastAPI."""
-    async with session_scope() as session:
-        yield session

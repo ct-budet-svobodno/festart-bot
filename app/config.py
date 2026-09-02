@@ -29,12 +29,6 @@ class Settings(BaseSettings):
 
     database_url: str = f"sqlite+aiosqlite:///{DATA_DIR / 'festart.db'}"
 
-    admin_password: str = "changeme"
-    secret_key: str = "dev-secret-change-me"
-    admin_host: str = "0.0.0.0"
-    admin_port: int = 8000
-    admin_base_url: str = "http://localhost:8000"
-
     timezone: str = "Europe/Moscow"
 
     @field_validator("database_url")

@@ -27,20 +27,6 @@ services:
         condition: service_healthy
     command: python -m app.bot.main
 
-  admin:
-    build: .
-    restart: unless-stopped
-    env_file: .env
-    environment:
-      DATABASE_URL: postgresql+asyncpg://festart:${POSTGRES_PASSWORD}@db:5432/festart
-    volumes:
-      - ./media:/app/media
-    depends_on:
-      db:
-        condition: service_healthy
-    ports:
-      - "8000:8000"
-    command: uvicorn app.admin.main:app --host 0.0.0.0 --port 8000
 
 volumes:
   pgdata:
