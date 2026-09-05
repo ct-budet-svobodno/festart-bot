@@ -46,7 +46,9 @@ async def run() -> None:
 
     me = await bot.get_me()
     logger.info("Бот запущен: @%s", me.username)
-    if me.username and me.username != settings.bot_username:
+    # Регистр не важен: для Telegram Festart_bot и festart_bot — один и тот же
+    # бот, и ложное предупреждение только сбивало бы с толку.
+    if me.username and me.username.lower() != settings.bot_username.lower():
         logger.warning(
             "BOT_USERNAME в .env (%s) не совпадает с реальным (%s) — "
             "ссылки в QR-кодах будут вести не туда!",
